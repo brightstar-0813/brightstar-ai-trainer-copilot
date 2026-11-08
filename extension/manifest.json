@@ -1,0 +1,39 @@
+{
+  "manifest_version": 3,
+  "name": "BrightStar AI Trainer Copilot",
+  "version": "0.5.3",
+  "description": "Side panel for BrightStar AI Trainer Copilot. Opens your logged-in ChatGPT or Claude tab and runs teaching builds.",
+  "permissions": ["tabs", "storage", "alarms", "sidePanel", "scripting"],
+  "host_permissions": [
+    "https://claude.ai/*",
+    "https://chatgpt.com/*",
+    "https://chat.openai.com/*",
+    "http://127.0.0.1:8799/*",
+    "http://127.0.0.1/*",
+    "http://localhost/*"
+  ],
+  "background": { "service_worker": "background.js" },
+  "content_scripts": [
+    {
+      "matches": [
+        "https://claude.ai/*",
+        "https://chatgpt.com/*",
+        "https://chat.openai.com/*",
+        "http://127.0.0.1:8799/*"
+      ],
+      "js": ["content.js"],
+      "run_at": "document_idle"
+    },
+    {
+      "matches": ["http://localhost:8501/*", "http://127.0.0.1:8501/*"],
+      "js": ["dashboard.js"],
+      "run_at": "document_start"
+    }
+  ],
+  "side_panel": {
+    "default_path": "panel.html"
+  },
+  "action": {
+    "default_title": "BrightStar AI Trainer Copilot"
+  }
+}

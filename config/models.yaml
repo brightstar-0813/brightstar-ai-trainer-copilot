@@ -1,0 +1,39 @@
+# Which model backend handles each task.
+# provider: auto | browser | openai | anthropic | claude | gpt | manual | mock
+#
+# browser path (default for this project): claude + gpt = logged-in tabs via bridge/extension.
+# openai / anthropic = optional API keys in .env
+# auto = data/llm_prefs.yaml / JT_LLM_ENGINE, else API key if set, else Claude browser
+# manual = paste replies in the dashboard Manual page
+defaults:
+  provider: browser
+  new_chat: true
+
+# provider: browser → follow dashboard/side-panel engine + Session (ChatGPT/Claude).
+# bridge_test stays pinned to Claude browser for selector checks.
+tasks:
+  job_analyze:      { provider: browser }
+  gap_questions:    { provider: browser }
+  resume_tailor:    { provider: browser }
+  humanize:         { provider: browser }
+  profile_optimize: { provider: browser }
+  samples:          { provider: browser }
+  sample_suggest:   { provider: browser }
+  resume_import:    { provider: browser }
+  compare:          { provider: browser }
+  match_screen:     { provider: browser }
+  bridge_test:      { provider: claude }
+
+providers:
+  openai:
+    model: gpt-4o-mini          # override with OPENAI_MODEL=
+  anthropic:
+    model: claude-sonnet-4-20250514  # override with ANTHROPIC_MODEL=
+  claude:
+    # To run inside a Claude Project (e.g. one holding your master profile), use that project's /new URL here.
+    url: "https://claude.ai/new"
+  gpt:
+    # temporary-chat keeps your ChatGPT history clean
+    url: "https://chatgpt.com/?temporary-chat=true"
+  mock:
+    url: "http://127.0.0.1:8799/mock_chat.html"   # served by tests/test_e2e_extension.py

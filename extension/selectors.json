@@ -1,0 +1,103 @@
+{
+  "_note": "All DOM selectors live here. When claude.ai or chatgpt.com changes its markup, edit this file only. Each list is tried in order; the first selector that matches wins.",
+  "claude": {
+    "host": "claude.ai",
+    "editor": [
+      "div[contenteditable='true'].ProseMirror",
+      "[data-testid='chat-input']",
+      "fieldset div[contenteditable='true']",
+      "div[contenteditable='true']"
+    ],
+    "send_button": [
+      "button[aria-label='Send message']",
+      "button[aria-label='Send Message']",
+      "button[data-testid='send-button']"
+    ],
+    "stop_button": [
+      "button[aria-label='Stop response']",
+      "button[aria-label='Stop Response']",
+      "button[aria-label='Stop generating']"
+    ],
+    "assistant_message": [
+      "[data-testid='assistant-message']",
+      "div.font-claude-response",
+      "div.font-claude-message"
+    ],
+    "user_message": [
+      "[data-testid='user-message']"
+    ],
+    "streaming": ["[data-is-streaming='true']"],
+    "alerts": ["[role='alert']", "[data-testid*='toast']", "[data-state='open'][role='status']"],
+    "limit_patterns": [
+      "usage limit",
+      "reached your (message )?limit",
+      "message limit",
+      "limit will reset",
+      "too many messages",
+      "rate limit"
+    ],
+    "continue_text": ["^continue$", "^continue generating$"]
+  },
+  "gpt": {
+    "host": "chatgpt.com",
+    "editor": [
+      "#prompt-textarea",
+      "div#prompt-textarea[contenteditable='true']",
+      "div.ProseMirror[contenteditable='true']",
+      "textarea[name='prompt-textarea']",
+      "div[contenteditable='true'][data-testid='prompt-textarea']"
+    ],
+    "send_button": [
+      "button[data-testid='send-button']",
+      "button[aria-label='Send prompt']",
+      "button[aria-label='Send message']",
+      "button[data-testid='composer-send-button']"
+    ],
+    "stop_button": [
+      "button[data-testid='stop-button']",
+      "button[aria-label='Stop streaming']",
+      "button[aria-label='Stop generating']",
+      "button[data-testid='composer-stop-button']"
+    ],
+    "assistant_message": [
+      "[data-message-author-role='assistant']",
+      "[data-message-author-role=assistant]",
+      "[data-message-role='assistant']",
+      "[data-turn='assistant']",
+      "section[data-turn='assistant']",
+      "[data-testid='assistant-message']",
+      "[data-testid='assistant']",
+      "article[data-testid^='conversation-turn'] [data-message-author-role='assistant']",
+      "[class*='assistant-message']"
+    ],
+    "user_message": [
+      "[data-message-author-role='user']",
+      "[data-message-author-role=user]",
+      "[data-message-role='user']",
+      "[data-turn='user']",
+      "[data-testid*='user-message']"
+    ],
+    "streaming": [".result-streaming", "[data-is-streaming='true']"],
+    "alerts": ["[role='alert']", "[data-testid*='toast']"],
+    "limit_patterns": [
+      "reached (our|the|your) (usage )?limit",
+      "usage limit",
+      "too many requests",
+      "message cap",
+      "you've hit the"
+    ],
+    "continue_text": ["^continue generating$", "^continue$"]
+  },
+  "mock": {
+    "host": "127.0.0.1",
+    "editor": ["#editor"],
+    "send_button": ["#send"],
+    "stop_button": ["#stop"],
+    "assistant_message": [".assistant-msg"],
+    "user_message": [".user-msg"],
+    "streaming": [],
+    "alerts": [".alert"],
+    "limit_patterns": ["usage limit"],
+    "continue_text": ["^continue$"]
+  }
+}

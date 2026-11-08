@@ -1,0 +1,152 @@
+﻿# AI-trainer taxonomy. Used for (1) job relevance filtering, (2) ATS keyword coverage, (3) normalising domains.
+# Each entry: canonical name -> list of synonyms (all lower-case, matched as whole words / phrases).
+
+domains:
+  coding: [coding, programming, software engineer, python, javascript, typescript, java, c++, rust, golang, sql, code review, debugging, algorithms, full-stack, backend, frontend]
+  math: [mathematics, math, calculus, algebra, statistics, probability, proofs, linear algebra, number theory]
+  physics: [physics, quantum, mechanics, thermodynamics, astrophysics]
+  chemistry: [chemistry, organic chemistry, biochemistry, chemical engineering]
+  biology: [biology, genetics, molecular biology, neuroscience, bioinformatics]
+  medicine: [medicine, medical, clinical, physician, md, nurse, pharmacist, healthcare, radiology]
+  law: [law, legal, attorney, lawyer, jd, paralegal, compliance, contract]
+  finance: [finance, financial, accounting, cpa, cfa, economics, investment, banking, quantitative]
+  engineering: [engineering, mechanical, electrical, civil, aerospace, robotics, embedded]
+  creative writing: [creative writing, fiction, poetry, screenwriting, copywriting, editing, journalism, storytelling]
+  languages: [bilingual, multilingual, translation, translator, linguistics, native speaker, localization, spanish, french, german, japanese, korean, chinese, arabic, hindi, portuguese]
+  humanities: [history, philosophy, literature, psychology, sociology, political science, education, teaching]
+  general: [generalist, general knowledge, research, fact-checking]
+
+task_types:
+  rlhf ranking: [rlhf, preference ranking, ranking responses, comparing responses, pairwise comparison, reward model, human feedback]
+  sft writing: [sft, supervised fine-tuning, write prompts, prompt writing, response writing, demonstration data, instruction data]
+  red teaming: [red teaming, red team, adversarial, jailbreak, safety evaluation, harmful content, trust and safety]
+  evaluation: [evaluation, evals, benchmark, model evaluation, grading, quality assurance, qa, fact check, factuality]
+  rubric design: [rubric, rubrics, criteria, scoring guidelines, grading rubric]
+  annotation: [annotation, labeling, data labeling, tagging, transcription, data quality]
+  prompt engineering: [prompt engineering, prompt engineer, prompt design, chain of thought, few-shot]
+  code review: [code review, code evaluation, code generation, unit tests, pull request]
+  agentic: [agent, agentic, tool use, function calling, browser use, computer use, trajectories]
+
+tools_and_signals:
+  - llm
+  - large language model
+  - chatgpt
+  - claude
+  - gemini
+  - openai
+  - anthropic
+  - generative ai
+  - machine learning
+  - nlp
+  - data quality
+  - attention to detail
+  - guidelines
+  - critical thinking
+  - written communication
+  - peer review
+  - phd
+  - master's
+  - bachelor's
+  - published
+  - research
+  - remote
+  - contractor
+  - freelance
+  - flexible hours
+
+# Relevance filter (all matching is whole-word, case-insensitive, on the job TITLE unless noted).
+#  strict  (company career boards): keep when a strong/title keyword hits and no exclude keyword hits
+#          (an exclude keyword is ignored when the title also has a strong keyword).
+#  relaxed (LinkedIn, where the search query already targeted the role): additionally keep when the
+#          description has at least `relaxed_body_hits` body keywords. Exclusions still apply.
+# Note: some postings write "AI" as "Al" (lowercase L), so both spellings are listed.
+relevance:
+  relaxed_body_hits: 2
+  strong_title_keywords:
+    - ai trainer
+    - al trainer
+    - ai tutor
+    - al tutor
+    - ai training
+    - rlhf
+    - data annotation
+    - annotator
+    - annotation specialist
+    - model evaluator
+    - ai evaluator
+    - llm evaluator
+    - prompt engineer
+    - ai red teamer
+    - red teamer
+  title_keywords:
+    - fellow
+    - generative ai
+    - generative al
+    - subject matter expert
+    - sme
+    - domain expert
+    - expert reviewer
+    - ai quality
+    - quality reviewer
+    - ai reviewer
+    - ai writer
+    - ai expert
+    - ai specialist
+    - human data
+    - freelance ai
+    - coding specialist
+    - math specialist
+    - evaluator
+    - rater
+  exclude_title_keywords:
+    - recruiter
+    - recruiting
+    - sourcer
+    - talent
+    - account executive
+    - account manager
+    - sales
+    - marketing
+    - administrative
+    - finance generalist
+    - strategic
+    - product manager
+    - manager
+    - lead
+    - director
+    - head of
+    - vice president
+    - vp
+    - engineer
+    - developer
+    - scientist
+    - researcher
+    - architect
+    - analyst
+    - intern
+    - operations
+    - infrastructure
+    - systems
+    - forward deployed
+    - counsel
+    - customer success
+    - partner
+    - partnerships
+    - consultant
+    - member of technical staff
+  body_keywords:
+    - rlhf
+    - reinforcement learning from human feedback
+    - train ai
+    - training ai
+    - large language model
+    - llm
+    - generative ai
+    - ai model
+    - model responses
+    - data annotation
+    - annotate
+    - evaluate model
+    - ai training
+    - prompt
+

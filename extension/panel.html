@@ -1,0 +1,137 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>BrightStar AI Trainer Copilot</title>
+  <link rel="stylesheet" href="panel.css" />
+</head>
+<body>
+  <h1>BrightStar AI Trainer Copilot</h1>
+  <p class="lede">Build teaching profiles with your logged-in ChatGPT or Claude tab. Models target 20+ years of experience.</p>
+
+  <div class="status">
+    <span id="dot" class="dot"></span>
+    <div>
+      <div id="status">Checking bridge…</div>
+      <div id="detail"></div>
+    </div>
+  </div>
+
+  <section>
+    <h2>Settings</h2>
+    <div class="row-2">
+      <div>
+        <label for="engine">Engine</label>
+        <select id="engine">
+          <option value="browser">Browser (ChatGPT / Claude)</option>
+          <option value="openai">OpenAI API (optional)</option>
+          <option value="auto">Auto</option>
+          <option value="manual">Manual paste</option>
+        </select>
+      </div>
+      <div>
+        <label for="browser">Session</label>
+        <select id="browser">
+          <option value="gpt">ChatGPT</option>
+          <option value="claude">Claude</option>
+        </select>
+      </div>
+    </div>
+    <div class="actions">
+      <button type="button" class="ghost" id="savePrefs">Save settings</button>
+      <button type="button" class="ghost" id="openDashboard">Open dashboard</button>
+    </div>
+    <p class="hint">OpenAI key stays in <code>.env</code>. Browser is the default path.</p>
+  </section>
+
+  <section>
+    <h2>Teaching model</h2>
+    <label for="name">Virtual candidate name</label>
+    <input id="name" placeholder="Mina Cho" autocomplete="off" />
+    <div class="row-2">
+      <div>
+        <label for="company">Last company</label>
+        <input id="company" placeholder="Fanuc" autocomplete="off" />
+      </div>
+      <div>
+        <label for="title">Last title</label>
+        <input id="title" placeholder="Senior controls engineer" autocomplete="off" />
+      </div>
+    </div>
+    <div class="row-2">
+      <div>
+        <label for="location">Location (optional)</label>
+        <input id="location" placeholder="Chicago, IL" autocomplete="off" />
+      </div>
+      <div>
+        <label for="headline">Headline (optional)</label>
+        <input id="headline" placeholder="Senior controls engineer" autocomplete="off" />
+      </div>
+    </div>
+    <label for="about">About (optional)</label>
+    <textarea id="about" placeholder="Short LinkedIn-style summary. Leave empty to let the model write one."></textarea>
+    <label for="notes">Industry notes (optional)</label>
+    <textarea id="notes" placeholder="Products, customers, or the kind of work this company hires for."></textarea>
+    <label for="jd">Job description (optional)</label>
+    <textarea id="jd" placeholder="Paste a posting to aim at that job. Leave empty to aim at the company's industry."></textarea>
+
+    <div class="seed-block">
+      <div class="seed-head">
+        <h3>Experience</h3>
+        <button type="button" class="ghost tiny" data-add="experience">Add position</button>
+      </div>
+      <p class="hint tight">Last company above is current. Add earlier roles here.</p>
+      <div id="experienceList" class="seed-list"></div>
+    </div>
+    <div class="seed-block">
+      <div class="seed-head">
+        <h3>Education</h3>
+        <button type="button" class="ghost tiny" data-add="education">Add education</button>
+      </div>
+      <div id="educationList" class="seed-list"></div>
+    </div>
+    <div class="seed-block">
+      <div class="seed-head">
+        <h3>Licenses</h3>
+        <button type="button" class="ghost tiny" data-add="licenses">Add license</button>
+      </div>
+      <div id="licensesList" class="seed-list"></div>
+    </div>
+    <div class="seed-block">
+      <div class="seed-head">
+        <h3>Certifications</h3>
+        <button type="button" class="ghost tiny" data-add="certifications">Add certification</button>
+      </div>
+      <div id="certificationsList" class="seed-list"></div>
+    </div>
+    <div class="seed-block">
+      <div class="seed-head">
+        <h3>Skills</h3>
+        <button type="button" class="ghost tiny" data-add="skills">Add skill</button>
+      </div>
+      <div id="skillsList" class="seed-list"></div>
+    </div>
+    <div class="seed-block">
+      <div class="seed-head">
+        <h3>Languages</h3>
+        <button type="button" class="ghost tiny" data-add="languages">Add language</button>
+      </div>
+      <div id="languagesList" class="seed-list"></div>
+    </div>
+    <div class="seed-block">
+      <div class="seed-head">
+        <h3>Projects</h3>
+        <button type="button" class="ghost tiny" data-add="projects">Add project</button>
+      </div>
+      <div id="projectsList" class="seed-list"></div>
+    </div>
+
+    <div class="actions">
+      <button type="button" class="primary" id="build">Build teaching profile</button>
+    </div>
+    <p id="jobStatus" class="hint"></p>
+  </section>
+
+  <script src="panel.js"></script>
+</body>
+</html>

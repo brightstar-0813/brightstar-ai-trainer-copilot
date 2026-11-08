@@ -1,0 +1,12 @@
+.venv/
+__pycache__/
+*.pyc
+.env
+data/
+output/
+profile/people/
+profile/master_profile.yaml
+profile/resume_source/
+*.egg-info/
+.pytest_cache/
+.sf/

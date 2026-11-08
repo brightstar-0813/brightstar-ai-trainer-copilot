@@ -1,0 +1,38 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <style>
+    body { font: 13px system-ui, sans-serif; width: 300px; padding: 12px; margin: 0; }
+    .row { margin: 8px 0; }
+    .dot { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: 6px; vertical-align: middle; }
+    .ok { background: #2ea043; } .bad { background: #d1242f; } .wait { background: #d4a72c; }
+    button { margin: 0 4px 4px 0; }
+    small { color: #666; display: block; line-height: 1.35; }
+    details { margin-top: 10px; }
+    input { width: 100%; box-sizing: border-box; margin-top: 2px; }
+  </style>
+</head>
+<body>
+  <div class="row"><b>BrightStar AI Trainer Copilot</b></div>
+  <div class="row"><span id="dot" class="dot bad"></span><b id="status">Checking…</b></div>
+  <div class="row"><small id="detail"></small></div>
+  <div class="row">
+    <button id="reconnect">Reconnect</button>
+    <button id="pause">Pause</button>
+  </div>
+  <div class="row">
+    <button id="openClaude">Open Claude</button>
+    <button id="openGpt">Open ChatGPT</button>
+  </div>
+  <div class="row">
+    <small>Stay logged into ChatGPT or Claude in this Chrome. Open the copilot at localhost:8501 — it connects by itself. Extension updates reload themselves.</small>
+  </div>
+  <details>
+    <summary>Advanced</summary>
+    <div class="row">Bridge URL<input id="url" /></div>
+    <div class="row">Token<small>Filled automatically from the running copilot.</small><input id="token" type="password" readonly /></div>
+  </details>
+  <script src="popup.js"></script>
+</body>
+</html>

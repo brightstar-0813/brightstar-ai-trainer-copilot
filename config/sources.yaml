@@ -1,0 +1,50 @@
+# Where jobs come from.
+
+linkedin:
+  queries:
+    - AI trainer
+    - AI tutor
+    - RLHF
+    - LLM evaluator
+    - data annotation expert
+    - prompt engineer contractor
+    - AI model evaluation
+    - domain expert AI training
+  filters:
+    posted_within_seconds: 604800   # past week (f_TPR=r604800)
+    remote_only: true               # f_WT=2
+  max_jobs_per_run: 60
+  max_pages_per_query: 3
+  delay_seconds: [3, 8]             # random pause between page loads
+
+# Public ATS boards (no login). `slugs` are guesses; run `jt sources discover` to see which ones exist
+# and on which ATS. Verified boards are cached in data/verified_boards.json and used by `jt collect`.
+companies:
+  - { name: Scale AI,          slugs: [scaleai, scale] }
+  - { name: Surge AI,          slugs: [surgeai, surge-ai, surge] }
+  - { name: Invisible,         slugs: [invisibletech, invisible, invisible-technologies] }
+  - { name: Turing,            slugs: [turing, turing-com] }
+  - { name: Labelbox,          slugs: [labelbox] }
+  - { name: Mercor,            slugs: [mercor] }
+  - { name: xAI,               slugs: [xai, x-ai] }
+  - { name: Handshake,         slugs: [handshake, joinhandshake] }
+  - { name: Micro1,            slugs: [micro1] }
+  - { name: Anthropic,         slugs: [anthropic] }
+  - { name: OpenAI,            slugs: [openai] }
+  - { name: Cohere,            slugs: [cohere] }
+  - { name: Snorkel AI,        slugs: [snorkelai, snorkel-ai] }
+  - { name: Appen,             slugs: [appen] }
+  - { name: TELUS Digital,     slugs: [telusdigital, telus-digital] }
+  - { name: Welocalize,        slugs: [welocalize] }
+  - { name: Prolific,          slugs: [prolific] }
+  - { name: Toloka,            slugs: [toloka] }
+  - { name: Sepal AI,          slugs: [sepal, sepalai] }
+  - { name: Datacurve,         slugs: [datacurve] }
+
+# Career pages without a public ATS API (collected with the generic Playwright extractor).
+pages: []
+  # - { name: Outlier, url: "https://outlier.ai/careers", link_pattern: "/jobs/" }
+
+http:
+  timeout_seconds: 25
+  user_agent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130 Safari/537.36"

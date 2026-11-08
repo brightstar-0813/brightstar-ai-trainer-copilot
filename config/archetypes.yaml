@@ -1,0 +1,57 @@
+# Benchmark archetypes for `jt samples`. Add your own.
+stem_phd:
+  name: STEM PhD Expert
+  description: PhD-level subject expert (math, physics, chemistry or biology) writing hard problems and grading frontier-model reasoning.
+  roles: [AI Tutor - Math, STEM Fellow, Subject Matter Expert - Physics, Model Evaluator - Science]
+swe_coder:
+  name: Senior Software Engineer (Coding Trainer)
+  description: Senior engineer who writes, reviews and ranks code generations, builds eval tasks and agentic trajectories.
+  roles: [Coding Specialist, SWE Fellow, Code Reviewer - RLHF, AI Trainer - Python]
+bilingual:
+  name: Bilingual Language Specialist
+  description: Native-level speaker of a non-English language (plus fluent English) with linguistics or translation background, evaluating multilingual model output.
+  roles: [Data Annotation Specialist - Language, AI Tutor - Language, Multilingual Evaluator]
+licensed_professional:
+  name: Licensed Professional (Law or Medicine)
+  description: Practising or recently practising lawyer, physician or similar licensed professional reviewing domain answers for accuracy and safety.
+  roles: [Legal Fellow, Medical Fellow, AI Tutor - Legal and Compliance, Clinical Reviewer]
+creative_writer:
+  name: Generalist Writer
+  description: Published writer or editor who produces high-quality prompts and responses, rubrics, and style and safety judgments.
+  roles: [AI Tutor - Writing, Generalist Evaluator, Prompt Writer, Content Specialist]
+red_teamer:
+  name: AI Red Teamer
+  description: Trust-and-safety or security practitioner who probes models for harmful behaviour and documents reproducible failures.
+  roles: [AI Red Teamer, Safety Evaluator, Trust and Safety Specialist]
+finance_sme:
+  name: Financial Services Expert
+  description: Banking, markets or wealth professional (often CFA/CPA-adjacent) who reviews model answers on products, regulations and client advice for accuracy and compliance.
+  roles: [AI Tutor - Finance, Financial Services Fellow, Subject Matter Expert - Banking, Model Evaluator - Markets]
+quant_markets:
+  name: Quantitative / Markets Analyst
+  description: Quant or markets analyst who builds pricing, risk and market-data tasks and grades model reasoning on numerical finance and trading concepts.
+  roles: [Quant Fellow, Markets Evaluator, AI Tutor - Quantitative Finance, Risk Model Reviewer]
+education_sme:
+  name: Education Specialist
+  description: K-12, curriculum or instructional-design expert who writes tutoring content, rubrics and grade-level evals for learning-focused model training.
+  roles: [AI Tutor - Education, Curriculum Specialist, Education Fellow, Learning Content Evaluator]
+humanities_phd:
+  name: Humanities / Social Science Expert
+  description: PhD-level expert in history, philosophy, political science or psychology who grades nuanced reasoning, argumentation and domain factuality.
+  roles: [Humanities Fellow, AI Tutor - Social Science, Subject Matter Expert - History, Model Evaluator - Philosophy]
+domain_engineer:
+  name: Domain Engineer (Non-Software)
+  description: Practising mechanical, electrical, civil or aerospace engineer who writes and reviews technical problems, specs and engineering judgment tasks (not software).
+  roles: [Engineering Fellow, AI Tutor - Engineering, Subject Matter Expert - Mechanical, Model Evaluator - Technical]
+cybersecurity:
+  name: Cybersecurity Specialist
+  description: Defensive InfoSec practitioner who evaluates model guidance on threats, controls and secure practice — distinct from adversarial red-teaming.
+  roles: [Security Fellow, AI Tutor - Cybersecurity, InfoSec Evaluator, Trust and Safety - Security]
+data_analytics:
+  name: Data Analytics Specialist
+  description: Analyst skilled in SQL, BI and metrics who builds and grades tasks on data quality, dashboards and quantitative interpretation for model evals.
+  roles: [Analytics Fellow, AI Tutor - Data, Data Quality Evaluator, BI Specialist - RLHF]
+policy_gov:
+  name: Policy / Public Sector Expert
+  description: Policy, regulation or government-process expert who reviews civic, legislative and public-administration answers for accuracy and appropriate framing.
+  roles: [Policy Fellow, AI Tutor - Public Sector, Government Process Evaluator, Subject Matter Expert - Regulation]

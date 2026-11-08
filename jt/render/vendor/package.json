@@ -1,0 +1,6 @@
+{
+  "name": "jt-resume-templates",
+  "private": true,
+  "type": "module",
+  "description": "Vendored Brightstar Bid bot resume HTML templates for Job Copilot"
+}

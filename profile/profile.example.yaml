@@ -1,0 +1,38 @@
+# Copy to profile/people/<slug>.yaml (e.g. jane.yaml) and fill in with REAL facts only.
+# Each named file is that candidate's source of truth: resumes never invent facts not here or in gap answers.
+# Prefer numbers: hours, volumes, accuracy, rankings, years.
+basics:
+  name: Jane Example
+  headline: ""
+  location: "City, Country"
+  email: jane@example.com
+  phone: ""
+  links: { linkedin: "", github: "", website: "" }
+summary: ""
+target_roles: [AI Tutor, RLHF Evaluator, Subject Matter Expert]
+experience:
+  - company: Example University
+    title: Teaching Assistant, Calculus
+    start: "2021-09"
+    end: "2023-06"
+    location: ""
+    bullets:
+      - "Graded 400+ problem sets per term and wrote worked solutions for 120 students"
+    skills: [calculus, grading]
+education:
+  - { school: Example University, degree: MSc, field: Mathematics, start: "2021", end: "2023", details: [] }
+# Occupational licenses from a government or licensing board. Not a degree.
+licenses: []
+# Professional or vendor certifications. Not a license and not a degree.
+certifications: []
+# Legacy combined list. Leave empty; use licenses and certifications.
+licenses_certs: []
+projects: []
+publications: []
+ai_training_experience: []
+domains: [mathematics]
+languages:
+  - { name: English, level: native }
+coding: [python]
+tools: []
+achievements: []

@@ -11,7 +11,8 @@ model for job analysis or resume writing; run the `jt` pipelines instead.
 
 ## Layout
 - `jt/` Python package. CLI entry: `.venv\Scripts\jt` (Windows). Key modules: `llm/` (api + bridge + client),
-  `sources/` (ats.py, linkedin.py), `analysis/` (taxonomy, ats, fit), `pipelines/` (analyze, tailor, profile, samples),
+  `sources/` (ats.py; linkedin.py is profile-text only), `analysis/` (taxonomy, ats, fit),
+  `pipelines/` (analyze, tailor, profile, samples),
   `render/resume.py`.
 - `prompts/*.md` Jinja prompt templates, one per task; `prompts/_rules.md` holds the no-fabrication rules.
 - `config/` models.yaml (task -> provider: auto|openai|anthropic|claude|gpt|manual), sources.yaml, taxonomy.yaml,
@@ -23,16 +24,16 @@ model for job analysis or resume writing; run the `jt` pipelines instead.
 
 ## Commands
 `jt init`, `jt llm status|engine|test`, `jt ext-config`, `jt bridge serve|status|test`, `jt sources discover`,
-`jt collect [--linkedin]`, `jt jobs list|show|gaps|status`, `jt analyze <id>|--all-new`, `jt rank`,
+`jt collect`, `jt jobs list|show|gaps|status`, `jt analyze <id>|--all-new`, `jt rank`,
 `jt questions <id>`, `jt tailor <id>`, `jt profile list|use|import|show|optimize`, `jt samples list|generate|compare`,
-`jt octo check|profile-text`, `jt dashboard`. Prefer API keys (`OPENAI_API_KEY`) for batch analyze; use bridge when
-the user chooses Claude/ChatGPT browser.
+`jt octo check|profile-text` (own profile text only — no LinkedIn job scrape), `jt dashboard`. Prefer API keys
+(`OPENAI_API_KEY`) for batch analyze; use bridge when the user chooses Claude/ChatGPT browser.
 
 ## Rules
 - Never fabricate credentials, employers, dates, metrics or tools in resumes, profiles or prompts. Missing facts
   become questions or suggested actions. Samples are always labelled illustrative.
 - When claude.ai or chatgpt.com markup changes, edit `extension/selectors.json` only; verify with
   `jt bridge test` and `pytest tests/test_content_script.py`.
-- LinkedIn access is low volume, uses only the user's own Octo profile, and stops on any checkpoint/captcha.
+- Never collect jobs from LinkedIn. Octo may only fetch the user's own profile text for import.
 - Run `.venv\Scripts\python -m pytest tests -q` after changes (offline; uses fakes, no accounts touched).
 - Windows + PowerShell: chain commands with `;`, and use the venv Python explicitly.

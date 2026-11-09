@@ -1,8 +1,10 @@
 """Octo Browser local API -> Playwright over CDP.
 
+Used only for optional one-shot reads of *your own* LinkedIn profile text
+(`jt octo profile-text`). Job search/collection via LinkedIn is not supported.
+
 Octo exposes a local API (default http://localhost:58888). `POST /api/profiles/start` launches a profile and
-returns `ws_endpoint` / `debug_port`. We attach Playwright to that browser, so LinkedIn runs inside your
-already logged-in profile (cookies, fingerprint, proxy).
+returns `ws_endpoint` / `debug_port`. We attach Playwright to that browser.
 
 If you start the profile yourself, set OCTO_CDP_URL (e.g. http://127.0.0.1:9222) to attach without the API.
 """

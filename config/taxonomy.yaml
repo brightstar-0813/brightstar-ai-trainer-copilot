@@ -57,7 +57,7 @@ tools_and_signals:
 # Relevance filter (all matching is whole-word, case-insensitive, on the job TITLE unless noted).
 #  strict  (company career boards): keep when a strong/title keyword hits and no exclude keyword hits
 #          (an exclude keyword is ignored when the title also has a strong keyword).
-#  relaxed (LinkedIn, where the search query already targeted the role): additionally keep when the
+#  relaxed (legacy / keep_irrelevant=False with strict=False): additionally keep when the
 #          description has at least `relaxed_body_hits` body keywords. Exclusions still apply.
 # Note: some postings write "AI" as "Al" (lowercase L), so both spellings are listed.
 relevance:

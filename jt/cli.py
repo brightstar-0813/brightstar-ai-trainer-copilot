@@ -161,10 +161,12 @@ def sources_discover() -> None:
 @app.command()
 def collect(
     ats: bool = typer.Option(True, help="Collect from public ATS boards"),
-    linkedin: bool = typer.Option(False, "--linkedin", help="Collect from LinkedIn via Octo Browser"),
     keep_irrelevant: bool = typer.Option(False, help="Store jobs even if they do not look like AI-trainer work"),
 ) -> None:
-    """Collect jobs into the database."""
+    """Collect jobs from public ATS boards into the database.
+
+    LinkedIn job collection is not supported (account-risk).
+    """
     from .collect import store
     if ats:
         from .sources.ats import collect_all, verified_boards
@@ -174,16 +176,6 @@ def collect(
             discover()
         st = store(collect_all(), keep_irrelevant=keep_irrelevant)
         rprint(f"[bold]ATS boards[/bold]: seen {st.seen}, not relevant {st.irrelevant}, "
-               f"duplicates {st.duplicates}, [green]new {st.new}[/green]")
-    if linkedin:
-        from .browser.octo import OctoError
-        from .sources.linkedin import LinkedInBlocked, collect_linkedin
-        try:
-            st = store(collect_linkedin(log=lambda m: rprint(m)), keep_irrelevant=keep_irrelevant, strict=False)
-        except (OctoError, LinkedInBlocked) as e:
-            rprint(f"[red]{e}[/red]")
-            raise typer.Exit(1)
-        rprint(f"[bold]LinkedIn[/bold]: seen {st.seen}, not relevant {st.irrelevant}, "
                f"duplicates {st.duplicates}, [green]new {st.new}[/green]")
 
 
@@ -509,7 +501,7 @@ def profile_optimize(profile: str = typer.Option(None, "--profile", help="Profil
     rprint("\n".join(f"- {h}" for h in advice.headline_options))
 
 
-octo_app = typer.Typer(help="Octo Browser (LinkedIn)", no_args_is_help=True)
+octo_app = typer.Typer(help="Octo Browser (optional own LinkedIn profile text)", no_args_is_help=True)
 app.add_typer(octo_app, name="octo")
 
 

@@ -1,21 +1,4 @@
-# Where jobs come from.
-
-linkedin:
-  queries:
-    - AI trainer
-    - AI tutor
-    - RLHF
-    - LLM evaluator
-    - data annotation expert
-    - prompt engineer contractor
-    - AI model evaluation
-    - domain expert AI training
-  filters:
-    posted_within_seconds: 604800   # past week (f_TPR=r604800)
-    remote_only: true               # f_WT=2
-  max_jobs_per_run: 60
-  max_pages_per_query: 3
-  delay_seconds: [3, 8]             # random pause between page loads
+# Where jobs come from. Public ATS boards only — LinkedIn job scraping is not supported.
 
 # Public ATS boards (no login). `slugs` are guesses; run `jt sources discover` to see which ones exist
 # and on which ATS. Verified boards are cached in data/verified_boards.json and used by `jt collect`.

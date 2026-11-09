@@ -13,7 +13,7 @@ def utcnow() -> datetime:
 
 class Job(SQLModel, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
-    source: str = Field(index=True)  # linkedin | greenhouse | lever | ashby | page
+    source: str = Field(index=True)  # greenhouse | lever | ashby | page | (legacy: linkedin)
     external_id: str = Field(index=True)
     dedupe_key: str = Field(index=True)
     title: str

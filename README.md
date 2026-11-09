@@ -5,10 +5,10 @@ Collects AI-trainer / RLHF / AI-tutor jobs, analyzes each one with **OpenAI/Anth
 tailored resumes, LinkedIn advice and top-0.1% benchmark samples. Everything runs locally.
 
 ```
-LinkedIn (Octo) + ATS boards -> SQLite -> analyze / tailor / profile / samples
-                                              |  ask(task, prompt, schema)
-                     ┌── OpenAI / Anthropic API  (OPENAI_API_KEY / ANTHROPIC_API_KEY)
-                     └── bridge ws://127.0.0.1:8765 <-> Chrome extension <-> claude.ai / chatgpt.com
+ATS boards -> SQLite -> analyze / tailor / profile / samples
+                              |  ask(task, prompt, schema)
+     ┌── OpenAI / Anthropic API  (OPENAI_API_KEY / ANTHROPIC_API_KEY)
+     └── bridge ws://127.0.0.1:8765 <-> Chrome extension <-> claude.ai / chatgpt.com
 ```
 
 ## One-time setup (easiest: API key)
@@ -34,7 +34,8 @@ No Chrome extension needed when an API key is set and the engine is **Auto** (de
 Load `extension/` in `chrome://extensions` (Developer mode → Load unpacked), paste the token, Save, Reconnect.
 Then `jt llm engine claude` (or `gpt`), or pick it in the dashboard **AI engine** control.
 
-Optional LinkedIn: set `OCTO_PROFILE_UUID=` in `.env`, start Octo Browser, `jt octo check`.
+Optional: Octo can copy *your own* LinkedIn profile text for import (`OCTO_PROFILE_UUID`, `jt octo profile-text`).
+LinkedIn **job** collection is not supported.
 
 ## Daily use
 
@@ -48,8 +49,7 @@ Optional LinkedIn: set `OCTO_PROFILE_UUID=` in `.env`, start Octo Browser, `jt o
 | Set engine | `jt llm engine auto\|openai\|anthropic\|claude\|gpt\|manual` |
 | Test current engine | `jt llm test` |
 | Find which ATS each company uses | `jt sources discover` |
-| Collect jobs (public boards) | `jt collect` |
-| Collect from LinkedIn via Octo | `jt collect --no-ats --linkedin` |
+| Collect jobs (public ATS boards) | `jt collect` |
 | Build a named profile from a resume | `jt profile import --name jane --resume cv.pdf` (then edit `profile/people/jane.yaml`) |
 | Switch active profile | `jt profile use jane` / `jt profile list` |
 | Analyze + score jobs | `jt analyze --all-new --limit 10`, then `jt rank` |
@@ -77,8 +77,7 @@ Optional LinkedIn: set `OCTO_PROFILE_UUID=` in `.env`, start Octo Browser, `jt o
 ## Risks
 
 - Browser automation of claude.ai / chatgpt.com can hit rate limits or ToS issues; prefer API keys for batch work.
-- LinkedIn automation can trigger account restrictions. Collection is capped (default 60 jobs per run) with random
-  delays and stops at any checkpoint. Use only your own account.
+- LinkedIn job scraping is disabled on purpose (account-restriction risk). Do not reintroduce automated LinkedIn job search.
 - Site redesigns break the extension. Edit `extension/selectors.json` and re-run `jt bridge test`.
 
 ## Tests

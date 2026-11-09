@@ -5,7 +5,7 @@ import pytest
 from streamlit.testing.v1 import AppTest
 
 APP = str(Path(__file__).resolve().parent.parent / "dashboard" / "app.py")
-PAGES = ["Overview", "Jobs", "Job detail", "Profile", "Market and gaps", "Samples", "Tracker", "LLM log",
+PAGES = ["Overview", "Jobs", "Profile", "Market and gaps", "Samples", "Tracker", "LLM log",
          "Manual replies"]
 
 
@@ -13,5 +13,5 @@ PAGES = ["Overview", "Jobs", "Job detail", "Profile", "Market and gaps", "Sample
 def test_page_renders(page):
     at = AppTest.from_file(APP, default_timeout=60).run()
     assert not at.exception, at.exception
-    at.sidebar.radio[0].set_value(page).run()
+    at.radio(key="page").set_value(page).run()
     assert not at.exception, [e.value for e in at.exception]

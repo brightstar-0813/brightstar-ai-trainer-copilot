@@ -20,10 +20,10 @@ def test_data_pages_render(env):  # noqa: F811
     at = AppTest.from_file(APP, default_timeout=60)
     at.session_state["job_id"] = 1
     at.run()
-    for page in ("Job detail", "Market and gaps", "Samples", "Profile", "Jobs", "Overview"):
-        at.sidebar.radio[0].set_value(page).run()
+    for page in ("Jobs", "Market and gaps", "Samples", "Profile", "Overview"):
+        at.radio(key="page").set_value(page).run()
         assert not at.exception, (page, [e.value for e in at.exception])
-    at.sidebar.radio[0].set_value("Job detail").run()
+    at.radio(key="page").set_value("Jobs").run()
     metrics = {m.label: m.value for m in at.metric}
     assert "Fit score" in metrics and "ATS keyword coverage" in metrics
     warnings = " ".join(w.value for w in at.warning)

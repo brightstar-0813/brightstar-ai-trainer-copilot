@@ -74,7 +74,7 @@ st.set_page_config(
 
 
 def inject_shell() -> None:
-    """App chrome: brand sidebar, menu rows instead of radio circles, quieter type."""
+    """App chrome: slim sidebar + header tabs instead of sidebar menu rows."""
     st.markdown(
         """
 <style>
@@ -104,41 +104,55 @@ def inject_shell() -> None:
   }
   .jt-name { font-weight: 650; letter-spacing: -0.02em; line-height: 1.15; font-size: 0.95rem; }
   .jt-sub { font-size: 0.72rem; opacity: 0.55; margin-top: 0.12rem; letter-spacing: 0.01em; }
-  .jt-kicker {
-    margin: 0.35rem 0.45rem 0.35rem;
-    font-size: 0.68rem;
-    font-weight: 650;
-    letter-spacing: 0.08em;
-    text-transform: uppercase;
-    opacity: 0.45;
-  }
-  [data-testid="stSidebar"] [data-testid="stRadio"] [data-testid="stWidgetLabel"] { display: none; }
-  [data-testid="stSidebar"] .st-key-page,
-  [data-testid="stSidebar"] [data-testid="stRadio"],
-  [data-testid="stSidebar"] [data-testid="stRadioGroup"],
-  [data-testid="stSidebar"] [data-testid="stRadioGroup"] > div,
-  [data-testid="stSidebar"] [data-testid="stRadioOption"] {
+  /* Sticky workspace tabs — sit below Streamlit's absolute toolbar */
+  [data-testid="stMain"] .st-key-page {
+    position: sticky;
+    top: 3.75rem; /* clear absolute stHeader (~56px) */
+    z-index: 100;
     width: 100% !important;
-    max-width: 100%;
-    box-sizing: border-box;
+    margin: 0 0 1rem;
+    padding: 0.35rem 0 0.4rem;
+    background: var(--background-color, #0f172a);
+    box-shadow: 0 8px 16px -12px color-mix(in srgb, #000 55%, transparent);
   }
-  [data-testid="stSidebar"] [data-testid="stRadioOption"] {
-    border-radius: 8px;
-    padding: 0.46rem 0.7rem;
-    margin: 1px 0;
+  [data-testid="stMain"] .st-key-page [data-testid="stWidgetLabel"] { display: none; }
+  [data-testid="stMain"] .st-key-page [data-testid="stRadioGroup"] {
+    display: flex !important;
+    flex-direction: row !important;
+    flex-wrap: nowrap !important;
+    justify-content: space-between;
+    align-items: stretch;
+    gap: 0;
+    border-bottom: 1px solid color-mix(in srgb, var(--text-color) 12%, transparent);
+    width: 100%;
+    overflow: visible;
+  }
+  [data-testid="stMain"] .st-key-page [data-testid="stRadioGroup"] > div {
+    width: auto !important;
+    flex: 1 1 0;
+    min-width: 0;
+  }
+  [data-testid="stMain"] .st-key-page [data-testid="stRadioOption"] {
+    border-radius: 8px 8px 0 0;
+    padding: 0.55rem 0.35rem;
+    margin: 0;
+    width: 100%;
     cursor: pointer;
     border: 1px solid transparent;
-    box-shadow: inset 2px 0 0 transparent;
+    border-bottom: none;
+    box-shadow: inset 0 -2px 0 transparent;
+    background: transparent;
+    box-sizing: border-box;
   }
-  [data-testid="stSidebar"] [data-testid="stRadioOption"]:hover {
+  [data-testid="stMain"] .st-key-page [data-testid="stRadioOption"]:hover {
     background: color-mix(in srgb, var(--text-color) 7%, transparent);
   }
-  [data-testid="stSidebar"] [data-testid="stRadioOption"][data-selected="true"] {
-    background: color-mix(in srgb, var(--primary-color, #4c6fff) 18%, transparent);
-    box-shadow: inset 2px 0 0 var(--primary-color, #4c6fff);
+  [data-testid="stMain"] .st-key-page [data-testid="stRadioOption"][data-selected="true"] {
+    background: color-mix(in srgb, var(--primary-color, #4c6fff) 16%, transparent);
+    box-shadow: inset 0 -2px 0 var(--primary-color, #4c6fff);
   }
-  [data-testid="stSidebar"] [data-testid="stRadioOption"] > div > div:first-child,
-  [data-testid="stSidebar"] [data-testid="stRadioOption"] input {
+  [data-testid="stMain"] .st-key-page [data-testid="stRadioOption"] > div > div:first-child,
+  [data-testid="stMain"] .st-key-page [data-testid="stRadioOption"] input {
     position: absolute !important;
     width: 1px !important;
     height: 1px !important;
@@ -148,27 +162,32 @@ def inject_shell() -> None:
     opacity: 0 !important;
     pointer-events: none !important;
   }
-  [data-testid="stSidebar"] [data-testid="stRadioOption"] p {
+  [data-testid="stMain"] .st-key-page [data-testid="stRadioOption"] p {
     display: flex;
     align-items: center;
-    gap: 0.55rem;
+    justify-content: center;
+    gap: 0.35rem;
     margin: 0;
-    font-size: 0.9rem;
+    font-size: 0.95rem;
     line-height: 1.2;
+    white-space: nowrap;
   }
-  [data-testid="stSidebar"] [data-testid="stRadioOption"] [data-testid="stIconMaterial"] {
+  [data-testid="stMain"] .st-key-page [data-testid="stRadioOption"] [data-testid="stIconMaterial"] {
     font-size: 1.05rem;
     opacity: 0.72;
   }
-  [data-testid="stSidebar"] [data-testid="stRadioOption"][data-selected="true"] p {
+  [data-testid="stMain"] .st-key-page [data-testid="stRadioOption"][data-selected="true"] p {
     font-weight: 650;
   }
-  [data-testid="stSidebar"] [data-testid="stRadioOption"][data-selected="true"] [data-testid="stIconMaterial"] {
+  [data-testid="stMain"] .st-key-page [data-testid="stRadioOption"][data-selected="true"] [data-testid="stIconMaterial"] {
     opacity: 1;
   }
+  /* Full-width main pane; clear Streamlit's absolute header */
   [data-testid="stMain"] .block-container {
-    padding-top: 1.6rem;
-    max-width: 1120px;
+    padding-top: 4.25rem;
+    padding-left: 1.5rem;
+    padding-right: 1.5rem;
+    max-width: 100%;
   }
   [data-testid="stMain"] h1 {
     font-size: 1.55rem;
@@ -292,7 +311,7 @@ def open_ai_session() -> bool:
 
 
 def go(page: str) -> None:
-    """Switch the sidebar page. Use as a button on_click so the radio key can change."""
+    """Switch the header tab page. Use as a button on_click so the radio key can change."""
     st.session_state["page"] = page
 
 
@@ -484,7 +503,11 @@ Keep `jt bridge serve` (or this dashboard) running.
 
 
 def page_jobs() -> None:
-    page_header("Jobs", "Filter the list, select a row, then open it.", ":material/list_alt:")
+    page_header(
+        "Jobs",
+        "Filter the list, select a row to score it and draft a resume.",
+        ":material/work:",
+    )
     df = load_jobs_df()
     if df.empty:
         st.info("No jobs yet. Collect some from Overview.", icon=":material/info:")
@@ -508,20 +531,24 @@ def page_jobs() -> None:
                 st.session_state["jobs_min_fit"] = 0
                 st.session_state["jobs_q"] = ""
                 st.rerun()
+    filtered = df
     if sources:
-        df = df[df["source"].isin(sources)]
+        filtered = filtered[filtered["source"].isin(sources)]
     if statuses:
-        df = df[df["status"].isin(statuses)]
+        filtered = filtered[filtered["status"].isin(statuses)]
     if min_fit:
-        df = df[df["fit"].fillna(-1) >= min_fit]
+        filtered = filtered[filtered["fit"].fillna(-1) >= min_fit]
     if q:
-        df = df[df["title"].str.contains(q, case=False) | df["company"].str.contains(q, case=False)]
-    st.caption(f"{len(df)} shown")
-    if df.empty:
+        filtered = filtered[
+            filtered["title"].str.contains(q, case=False)
+            | filtered["company"].str.contains(q, case=False)
+        ]
+    st.caption(f"{len(filtered)} shown")
+    if filtered.empty:
         st.info("Nothing matches these filters.", icon=":material/filter_alt_off:")
         return
     ev = st.dataframe(
-        df,
+        filtered,
         hide_index=True,
         on_select="rerun",
         selection_mode="single-row",
@@ -540,32 +567,29 @@ def page_jobs() -> None:
             "id": st.column_config.NumberColumn("ID"),
         },
         alt="Collected jobs",
+        key="jobs_table",
     )
-    if ev.selection.rows:
-        row = df.iloc[ev.selection.rows[0]]
-        st.session_state["job_id"] = int(row["id"])
-        with st.container(border=True):
-            st.markdown(f"**{row['company']}** · {row['title']}")
-            st.button("Open job detail", type="primary", icon=":material/arrow_forward:", on_click=go, args=("Job detail",))
-
-
-def page_job_detail() -> None:
-    df = load_jobs_df()
-    if df.empty:
-        page_header("Job detail", "Open a collected job to score it and draft a resume.", ":material/description:")
-        st.info("No jobs yet.", icon=":material/info:")
-        st.button("Go to overview", icon=":material/arrow_back:", on_click=go, args=("Overview",))
-        return
     ids = df["id"].tolist()
-    default = st.session_state.get("job_id", ids[0])
+    if ev.selection.rows:
+        picked = int(filtered.iloc[ev.selection.rows[0]]["id"])
+        st.session_state["job_id"] = picked
+        st.session_state["jobs_selected"] = picked
+    if st.session_state.get("jobs_selected") not in ids:
+        fallback = st.session_state.get("job_id", ids[0])
+        st.session_state["jobs_selected"] = fallback if fallback in ids else ids[0]
     labels = {int(r.id): f"{r.company} · {r.title}" for r in df.itertuples()}
+    st.divider()
     job_id = st.selectbox(
-        "Switch job",
+        "Selected job",
         ids,
-        index=ids.index(default) if default in ids else 0,
         format_func=lambda i: labels[int(i)],
+        key="jobs_selected",
     )
     st.session_state["job_id"] = int(job_id)
+    _render_job_detail(int(job_id))
+
+
+def _render_job_detail(job_id: int) -> None:
     with db.session() as s:
         job = s.get(Job, job_id)
         analysis = an.latest_analysis(s, job_id)
@@ -573,7 +597,7 @@ def page_job_detail() -> None:
     if job is None:
         st.error("That job is no longer in the database.", icon=":material/error:")
         return
-    st.title(job.title, icon=":material/description:")
+    st.subheader(job.title, icon=":material/description:")
     st.caption(
         f"{job.company} · {job.location} · pay {job.pay or 'n/a'} · {job.source} · "
         f"posted {job.posted or '?'} · applicants {job.applicants or '?'}"
@@ -1654,7 +1678,7 @@ def page_samples() -> None:
 def page_tracker() -> None:
     page_header(
         "Application tracker",
-        "Shortlist or mark a job applied on Job detail, then record the stage here.",
+        "Shortlist or mark a job applied on Jobs, then record the stage here.",
         ":material/checklist:",
     )
     with db.session() as s:
@@ -1714,8 +1738,8 @@ def page_tracker() -> None:
             st.toast("Tracking entry deleted")
             st.rerun()
     else:
-        st.info("Mark a job shortlisted or applied on Job detail to track it here.", icon=":material/info:")
-        st.button("Go to job detail", icon=":material/arrow_forward:", on_click=go, args=("Job detail",))
+        st.info("Mark a job shortlisted or applied on Jobs to track it here.", icon=":material/info:")
+        st.button("Go to jobs", icon=":material/arrow_forward:", on_click=go, args=("Jobs",))
     if apps:
         st.subheader("History", icon=":material/history:")
         with db.session() as s:
@@ -1945,21 +1969,19 @@ def page_top_tier_screen() -> None:
 NAV_LABELS = {
     "Overview": ":material/space_dashboard: Overview",
     "Top 0.1% Screen": ":material/military_tech: Top 0.1%",
-    "Samples": ":material/school: Teaching models",
+    "Samples": ":material/school: Teaching",
     "Jobs": ":material/work: Jobs",
-    "Job detail": ":material/article: Job detail",
     "Tracker": ":material/conversion_path: Tracker",
     "Profile": ":material/person: Profiles",
     "Market and gaps": ":material/query_stats: Market",
     "LLM log": ":material/history: Activity",
-    "Manual replies": ":material/forum: Manual replies",
+    "Manual replies": ":material/forum: Manual",
 }
 PAGES = {
     "Overview": page_overview,
     "Top 0.1% Screen": page_top_tier_screen,
     "Samples": page_samples,
     "Jobs": page_jobs,
-    "Job detail": page_job_detail,
     "Tracker": page_tracker,
     "Profile": page_profile,
     "Market and gaps": page_market,
@@ -2020,7 +2042,16 @@ if _profile_names:
         set_active_profile(_profile_pick)
 else:
     st.sidebar.caption("No profiles yet — open Profiles to import one.")
-st.sidebar.markdown('<div class="jt-kicker">Workspace</div>', unsafe_allow_html=True)
-choice = st.sidebar.radio("Page", list(PAGES), format_func=lambda name: NAV_LABELS[name], key="page", label_visibility="collapsed")
 sidebar_activity()
+if st.session_state.get("page") == "Job detail":
+    st.session_state["page"] = "Jobs"
+choice = st.radio(
+    "Page",
+    list(PAGES),
+    format_func=lambda name: NAV_LABELS[name],
+    key="page",
+    label_visibility="collapsed",
+    horizontal=True,
+    width="stretch",
+)
 PAGES[choice]()

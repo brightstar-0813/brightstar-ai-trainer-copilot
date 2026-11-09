@@ -4,6 +4,7 @@ Analyze the job posting below and extract its requirements as structured data.
 
 Guidance:
 - must_haves are things the posting states as required or clearly gating (degree, years, language level, occupational license, certification, specific skills). nice_to_haves are "preferred", "bonus", "plus". Use category `license` for a government or board license and `certification` for a professional or vendor certification. A degree is `education`, not a license.
+- `education_required`: the highest degree bar the posting states (e.g. "bachelor's", "master's", "PhD preferred", "PhD or equivalent", "JD", "MD"). Prefer the doctoral/professional-doctorate wording when the posting asks for more than a master's.
 - For each requirement give 1-4 short lowercase `keywords` a candidate's resume would contain if they met it (e.g. "python", "phd", "native spanish", "rlhf").
 - `keywords` (top level): up to 25 ATS terms that appear in or are strongly implied by the posting.
 - `domain`: the primary subject area (coding, math, physics, chemistry, biology, medicine, law, finance, engineering, creative writing, languages, humanities, general).

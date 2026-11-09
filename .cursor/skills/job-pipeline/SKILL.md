@@ -28,6 +28,8 @@ Project root: `D:\Work\JobHunting\00_AI Trainer\AI Trainer Copiot`. Use `.\.venv
   with optional `--jd` or `--jd-file`. Writes a profile, resume, and coach notes under
   `output/suggestions/`. The name is the virtual candidate. The last company is their latest employer
   in the model; other employers must be US high-ranking peers, and universities/credentials stay real.
+  When the JD needs more than a master's, the model should use PhD/postdoc/professional doctorate
+  education from a real high-ranking university.
 
 ## Rules
 - Never invent facts for the user. If an answer is unknown, leave it empty.

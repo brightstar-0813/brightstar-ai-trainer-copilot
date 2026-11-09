@@ -14,7 +14,7 @@ Most common requirements:
 
 Build a complete profile with:
 - a realistic, believable career history (3-4 roles) whose progression makes the archetype's credibility obvious, with bullets that carry numbers and named tools;
-- education with honours that matter for the archetype. Degrees only; do not put a license or a certification here;
+- education with honours that matter for the archetype. Degrees only; do not put a license or a certification here. If the archetype is PhD-level or the market prefers doctoral credentials, use a PhD (or equivalent) from a high-ranking research university — do not stop at a master's when the bar is higher;
 - `licenses`: occupational licenses that actually exist for this archetype (government or licensing board). Leave empty when none exist;
 - `certifications`: professional or vendor certifications that actually exist for this archetype. Leave empty when none exist. Leave `licenses_certs` empty;
 - 2-3 projects or publications that prove the skill directly (including any AI-training, evaluation or red-teaming work);

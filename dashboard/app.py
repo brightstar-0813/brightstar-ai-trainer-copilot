@@ -987,7 +987,7 @@ def teaching_workspace() -> None:
         career.markdown("**Career**")
         career.caption("US high-ranking employers, with the last company as the current role.")
         education.markdown("**Education**")
-        education.caption("Schools, licenses, and projects that are real.")
+        education.caption("Real high-ranking schools; PhD+ when the target needs more than a master's.")
         notes.markdown("**Coach notes**")
         notes.caption("What to include, the best option, and how to teach it.")
         resume.markdown("**Resume**")
@@ -1501,8 +1501,8 @@ def page_samples() -> None:
         for eid in st.session_state["suggest_education_ids"]:
             with _entry_shell("School", list_key="suggest_education_ids", entry_id=eid):
                 c1, c2 = st.columns(2)
-                c1.text_input("School", key=f"suggest_edu_school_{eid}", placeholder="Georgia Institute of Technology")
-                c2.text_input("Degree", key=f"suggest_edu_degree_{eid}", placeholder="BSc")
+                c1.text_input("School", key=f"suggest_edu_school_{eid}", placeholder="Stanford University")
+                c2.text_input("Degree", key=f"suggest_edu_degree_{eid}", placeholder="PhD")
                 c3, c4, c5 = st.columns(3)
                 c3.text_input("Field", key=f"suggest_edu_field_{eid}", placeholder="Electrical Engineering")
                 c4.text_input("Start", key=f"suggest_edu_start_{eid}", placeholder="2010")

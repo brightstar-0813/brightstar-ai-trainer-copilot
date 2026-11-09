@@ -354,11 +354,11 @@ class SampleProfile(BaseModel):
     education: list[ResumeEducation]
     licenses: list[str] = Field(
         default_factory=list,
-        description="Real occupational licenses and their issuers. Empty when the domain has none.",
+        description="Real occupational licenses and their issuers. Licensed domains: typically 1–3 gating/specialty licenses. Empty only when the domain has none.",
     )
     certifications: list[str] = Field(
         default_factory=list,
-        description="Real professional or vendor certifications and their issuers. Empty when the domain has none.",
+        description="Real professional or vendor certifications and their issuers. Prefer a dense stack (typically 3–6 when cert paths exist; 2–4 alongside licenses). Empty only when the domain has none.",
     )
     licenses_certs: list[str] = Field(
         default_factory=list,
@@ -417,7 +417,10 @@ class SuggestedBenchmark(BaseModel):
         description="Why this career, education, licenses, certifications and projects would rank in the top 0.1% for the target. "
         "When a job description was given, map its main requirements onto sections of the sample.")
     persona_name: str = Field(description="Virtual candidate name. Use the name that was provided.")
-    teaching_notes: list[TeachingNote] = Field(min_length=5)
+    teaching_notes: list[TeachingNote] = Field(
+        min_length=6,
+        description="At least one note each for headline, experience, education, licenses, certifications, and projects.",
+    )
     sample: TargetedSample
 
 

@@ -11,6 +11,7 @@ Method:
 6. Skills: fill `skill_groups` with 4-6 categories (3-6 items each), most job-relevant first. Also set flat `skills` to the same items for ATS (max ~18). No soft-skill filler; never one long middot dump without categories.
 7. Aim for one page of content: at most 4 roles, max 5 bullets for recent/relevant roles and 2 for older ones.
 8. Keep three credential sections separate. Degrees go in `education`. Occupational licenses (a government or licensing board: PE, bar admission, RN, medical license, CPA) go in `licenses`. Professional and vendor certifications (PMP, AWS, OSHA, a manufacturer credential) go in `certifications`. Do not place a license or a certification inside education. Items still listed under `licenses_certs` belong in `licenses` or `certifications`, not in education.
+8a. Education may list several degrees (multiple bachelor's, master's, PhD/JD/MD, postdoc). Use every degree present in the candidate profile YAML — that list is already filtered for this job. Preserve each as its own entry; order newest/highest first. Do not invent degrees that are not in the profile.
 9. `additional`: only human-readable languages, publications, or awards. Leave empty when none. Never dump key:value metadata.
 10. Anything you included that you could not trace to the profile or answers goes in `unverified_claims`. Prefer leaving it out.
 

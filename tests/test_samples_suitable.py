@@ -28,7 +28,7 @@ def _notes() -> list[TeachingNote]:
             best_option="real orgs",
             how_to_teach="explain caliber",
         )
-        for sec in ("headline", "experience", "education", "licenses", "projects")
+        for sec in ("headline", "experience", "education", "licenses", "certifications", "projects")
     ]
 
 

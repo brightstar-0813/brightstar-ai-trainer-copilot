@@ -29,7 +29,11 @@ Project root: `D:\Work\JobHunting\00_AI Trainer\AI Trainer Copiot`. Use `.\.venv
   `output/suggestions/`. The name is the virtual candidate. The last company is their latest employer
   in the model; other employers must be US high-ranking peers, and universities/credentials stay real.
   When the JD needs more than a master's, the model should use PhD/postdoc/professional doctorate
-  education from a real high-ranking university.
+  education from a real high-ranking university, listed as separate degree entries with the prior
+  bachelor's/master's ladder (and a second field degree when dual expertise is needed). Licenses and
+  certifications should be dense when real credentials exist for the domain (typically 1–3 licenses
+  plus 2–4 specialty certs, or 3–6 vendor/professional certs) — not a single token credential.
+  Resume tailor keeps every real degree in the master profile but surfaces only job-relevant ones.
 
 ## Rules
 - Never invent facts for the user. If an answer is unknown, leave it empty.

@@ -987,7 +987,9 @@ def teaching_workspace() -> None:
         career.markdown("**Career**")
         career.caption("US high-ranking employers, with the last company as the current role.")
         education.markdown("**Education**")
-        education.caption("Real high-ranking schools; PhD+ when the target needs more than a master's.")
+        education.caption(
+            "Real high-ranking schools; multiple degrees OK (BS/MS/PhD ladder; PhD+ when the bar needs it)."
+        )
         notes.markdown("**Coach notes**")
         notes.caption("What to include, the best option, and how to teach it.")
         resume.markdown("**Resume**")

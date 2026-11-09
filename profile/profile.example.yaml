@@ -19,8 +19,10 @@ experience:
     bullets:
       - "Graded 400+ problem sets per term and wrote worked solutions for 120 students"
     skills: [calculus, grading]
+# One list entry per degree. Candidates may have several (BS + MS + PhD, dual majors, MBA, JD, …).
 education:
   - { school: Example University, degree: MSc, field: Mathematics, start: "2021", end: "2023", details: [] }
+  # - { school: Example College, degree: BSc, field: Mathematics, start: "2017", end: "2021", details: [] }
 # Occupational licenses from a government or licensing board. Not a degree.
 licenses: []
 # Professional or vendor certifications. Not a license and not a degree.

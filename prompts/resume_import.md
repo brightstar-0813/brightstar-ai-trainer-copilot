@@ -8,7 +8,7 @@ Rules for this task:
 - Do not fix, embellish or reword claims. If a date or detail is missing, leave the field empty.
 - `domains`: subject areas the candidate could credibly evaluate AI outputs in (e.g. "mathematics", "python programming", "contract law"), derived only from the text.
 - `ai_training_experience`: only work that is clearly AI training, data annotation, RLHF, evaluation, red teaming or prompt writing.
-- Degrees go in `education`. Occupational licenses (government or licensing board) go in `licenses` as name, issuer, and year. Professional and vendor certifications go in `certifications` as name, issuer, and year. Do not put a license or a certification inside education, and leave `licenses_certs` empty.
+- Degrees go in `education`. A candidate may have several degrees (second bachelor's, multiple master's, PhD plus JD/MD, postdoc, etc.): store each as its own list entry with school, degree, field, and dates. Do not collapse a ladder into one line. Occupational licenses (government or licensing board) go in `licenses` as name, issuer, and year. Professional and vendor certifications go in `certifications` as name, issuer, and year. Do not put a license or a certification inside education, and leave `licenses_certs` empty.
 - `missing_evidence_questions`: up to 10 questions whose answers would materially strengthen the profile for AI-trainer roles (numbers, tools, volumes, outcomes, licenses, certifications, languages, publications). Ask only about things the text hints at but does not prove.
 
 `profile` must use exactly this layout (omit nothing, use empty strings/lists when unknown):

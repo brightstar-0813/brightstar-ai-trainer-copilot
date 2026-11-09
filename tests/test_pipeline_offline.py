@@ -92,7 +92,7 @@ class FakeBC:
                 "target_kind": "company_domain",
                 "why_this_shape": "A licensed controls engineer who has shipped safety-rated cells.",
                 "persona_name": "Someone Else",
-                "teaching_notes": [note(s) for s in ("headline", "experience", "education", "licenses", "projects")],
+                "teaching_notes": [note(s) for s in ("headline", "experience", "education", "licenses", "certifications", "projects")],
                 "sample": {
                     "archetype": "Controls engineer",
                     "label": "TEACHING EXAMPLE - virtual candidate, model career at real organisations",

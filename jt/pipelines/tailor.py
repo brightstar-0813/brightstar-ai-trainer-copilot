@@ -8,6 +8,7 @@ from sqlmodel import select
 
 from .. import config, db
 from ..analysis.ats import coverage, job_keywords
+from ..analysis.education import profile_for_resume
 from ..llm import ask_json
 from ..llm.client import LLMError, render_prompt
 from ..models import GapQuestion, Job, TailoredResume
@@ -121,7 +122,9 @@ def tailor_job(job_id: int, humanize: bool = True, profile: str | None = None) -
         analysis = analyze_job(job_id, profile=profile)
     req = requirements_of(analysis)
     answers = answered(job_id)
-    ctx = {"job": job, "requirements": req, "profile_yaml": cand.to_yaml(), "answers": answers}
+    # Master profile keeps every degree; the tailor prompt only sees job-relevant ones.
+    resume_profile = profile_for_resume(cand, req)
+    ctx = {"job": job, "requirements": req, "profile_yaml": resume_profile.to_yaml(), "answers": answers}
 
     resume = ask_json("resume_tailor", ResumeContent, ctx)
     changes: list[str] = []
@@ -151,7 +154,7 @@ def tailor_job(job_id: int, humanize: bool = True, profile: str | None = None) -
         accent_id=preferred_resume_accent() or None,
     )
     prompt_path = outdir / "resume_prompt.md"
-    prompt_path.write_text(export_prompt(job, req, cand, answers), encoding="utf-8")
+    prompt_path.write_text(export_prompt(job, req, resume_profile, answers), encoding="utf-8")
     (outdir / "meta.json").write_text(json.dumps(meta, indent=2), encoding="utf-8")
 
     with db.session() as s:

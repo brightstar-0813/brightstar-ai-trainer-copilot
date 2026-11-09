@@ -18,12 +18,18 @@ import time
 from typing import Any
 
 from websockets.asyncio.server import ServerConnection, serve
+from websockets.exceptions import ConnectionClosed
+from websockets.protocol import State
 
 from .. import config
 
 log = logging.getLogger("jt.bridge")
 
 DEFAULT_JOB_TIMEOUT = 300
+_EXT_GONE = (
+    "Chrome extension dropped the bridge socket. Open the extension popup and click Reconnect, "
+    "then retry."
+)
 
 
 class Bridge:
@@ -38,6 +44,26 @@ class Bridge:
         self.holders: dict[str, ServerConnection] = {}
         self.pending: dict[str, tuple[asyncio.Future, ServerConnection]] = {}
         self.current: dict[str, str] = {}  # provider -> job id
+
+    def _ext_alive(self) -> bool:
+        ext = self.ext
+        if ext is None:
+            return False
+        try:
+            if ext.state is not State.OPEN:
+                self._drop_ext(ext)
+                return False
+        except Exception:
+            self._drop_ext(ext)
+            return False
+        return True
+
+    def _drop_ext(self, ws: ServerConnection | None = None) -> None:
+        """Forget a dead extension socket so status/reconnect stay accurate."""
+        if ws is None or self.ext is ws:
+            if self.ext is not None:
+                log.info("extension socket cleared (closed or send failed)")
+            self.ext = None
 
     # ---- connection entry -------------------------------------------------
     async def handler(self, ws: ServerConnection) -> None:
@@ -91,7 +117,7 @@ class Bridge:
                         await self._safe_send(entry[1], msg)
         finally:
             if self.ext is ws:
-                self.ext = None
+                self._drop_ext(ws)
                 log.info("extension disconnected")
                 for fut, _ in list(self.pending.values()):
                     if not fut.done():
@@ -129,7 +155,7 @@ class Bridge:
         if self.holders.get(provider) is not ws:
             await lock.acquire()
             self.holders[provider] = ws
-        if self.ext is None:
+        if not self._ext_alive():
             await self._safe_send(ws, {"type": "result", "id": job_id, "ok": False,
                                        "code": "no_extension",
                                        "error": "Chrome extension is not connected to the bridge"})
@@ -139,11 +165,11 @@ class Bridge:
         self.pending[job_id] = (fut, ws)
         self.current[provider] = job_id
         try:
-            await self.ext.send(json.dumps({
+            await self._send_ext({
                 "type": "job", "id": job_id, "provider": provider,
                 "prompt": msg["prompt"], "new_chat": bool(msg.get("new_chat", True)),
                 "url": msg.get("url"), "timeout": timeout,
-            }))
+            })
             try:
                 res = await asyncio.wait_for(fut, timeout + self.grace)
             except asyncio.TimeoutError:
@@ -156,6 +182,10 @@ class Bridge:
         except asyncio.CancelledError:
             await self._notify_ext({"type": "cancel", "id": job_id})
             raise
+        except ConnectionClosed:
+            self._drop_ext()
+            await self._safe_send(ws, {"type": "result", "id": job_id, "ok": False,
+                                       "code": "ext_disconnected", "error": _EXT_GONE})
         except Exception as e:  # noqa: BLE001
             await self._safe_send(ws, {"type": "result", "id": job_id, "ok": False,
                                        "code": "bridge_error", "error": repr(e)})
@@ -166,10 +196,11 @@ class Bridge:
 
     # ---- helpers ----------------------------------------------------------
     def status(self) -> dict:
+        alive = self._ext_alive()
         return {
-            "extension_connected": self.ext is not None,
-            "extension": self.ext_info,
-            "connected_for_s": int(time.time() - self.ext_since) if self.ext else 0,
+            "extension_connected": alive,
+            "extension": self.ext_info if alive else {},
+            "connected_for_s": int(time.time() - self.ext_since) if alive else 0,
             "busy": dict(self.current),
         }
 
@@ -186,11 +217,16 @@ class Bridge:
             await self._safe_send(ws, {"type": "open_fail", "code": "bad_provider",
                                        "error": "provider must be claude or gpt"})
             return
-        if self.ext is None:
+        if not self._ext_alive():
             await self._safe_send(ws, {"type": "open_fail", "code": "no_extension",
                                        "error": "Chrome extension is not connected to the bridge"})
             return
-        await self._notify_ext({"type": "open_provider", "provider": provider, "url": msg.get("url")})
+        try:
+            await self._send_ext({"type": "open_provider", "provider": provider, "url": msg.get("url")})
+        except ConnectionClosed:
+            self._drop_ext()
+            await self._safe_send(ws, {"type": "open_fail", "code": "ext_disconnected", "error": _EXT_GONE})
+            return
         await self._safe_send(ws, {"type": "open_ok", "provider": provider})
 
     async def _config_handler(self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter) -> None:
@@ -311,9 +347,25 @@ class Bridge:
         async with server:
             await server.serve_forever()
 
+    async def _send_ext(self, payload: dict) -> None:
+        """Send to the extension or raise ConnectionClosed after clearing a dead socket."""
+        if not self._ext_alive():
+            raise ConnectionClosed(None, None)
+        ext = self.ext
+        assert ext is not None
+        try:
+            await ext.send(json.dumps(payload))
+        except ConnectionClosed:
+            self._drop_ext(ext)
+            raise
+
     async def _notify_ext(self, payload: dict) -> None:
-        if self.ext is not None:
-            await self._safe_send(self.ext, payload)
+        if not self._ext_alive():
+            return
+        try:
+            await self._send_ext(payload)
+        except ConnectionClosed:
+            pass
 
     async def run(self) -> None:
         config_task = asyncio.create_task(self._serve_ext_config())

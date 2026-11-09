@@ -671,5 +671,37 @@ def samples_import_json(
     rprint(f"[green]resume[/green]  {paths['docx']}")
 
 
+@samples_app.command("suitable")
+def samples_suitable(
+    dir: Path = typer.Option(
+        None,
+        "--dir",
+        help="Suggestion folder (default: newest under output/suggestions/)",
+    ),
+    min_fit: float = typer.Option(
+        60.0,
+        "--min-fit",
+        help="Minimum in-memory fit to treat a collected job as suitable",
+    ),
+) -> None:
+    """List collected jobs that fit a teaching model, or job types when none do.
+
+    Scores analyzed jobs in memory against the teaching model — does not overwrite
+    real-candidate fit scores on JobAnalysis.
+    """
+    from .pipelines.samples import suitable_for_suggestion_dir, suitable_report_markdown
+
+    try:
+        result, folder, report_path = suitable_for_suggestion_dir(dir, min_fit=min_fit)
+    except FileNotFoundError as e:
+        rprint(f"[red]{e}[/red]")
+        raise typer.Exit(1)
+    md = suitable_report_markdown(result)
+    rprint(f"[dim]teaching model: {folder}[/dim]")
+    # Plain print: report is markdown and may include characters Rich/cp1252 mishandle.
+    typer.echo(md)
+    rprint(f"[green]saved[/green] {report_path}")
+
+
 if __name__ == "__main__":
     app()

@@ -4,13 +4,26 @@ from __future__ import annotations
 import json
 import re
 from pathlib import Path
+from typing import Any
 
-from .. import config
+from sqlmodel import select
+
+from .. import config, db
+from ..analysis.fit import score_fit
+from ..analysis.taxonomy import domains_in
 from ..llm import ask_json
 from ..llm.prefs import preferred_resume_accent, preferred_resume_template
+from ..models import Job, JobAnalysis
 from ..render.resume import render_docx, render_html
 from ..schemas import (
+    Basics,
+    Credential,
+    Education,
+    Experience,
+    JobRequirements,
+    MasterProfile,
     ProfileComparison,
+    Project,
     ResumeContent,
     SampleProfile,
     SuggestedBenchmark,
@@ -19,11 +32,28 @@ from ..schemas import (
 from .profile import market_data
 
 TEACHING_LABEL = "TEACHING EXAMPLE - virtual candidate, model career at real organisations"
+DEFAULT_SUITABLE_MIN_FIT = 60.0
 _GENERIC_ORG = re.compile(
     r"\b(a leading|a regional|a state|a top-?\s*10|a university known|a plant engineering|"
     r"placeholder|fictional firm|generic)\b",
     re.IGNORECASE,
 )
+# Map taxonomy domains to the closest teaching archetype when sample.archetype is free-text.
+_DOMAIN_TO_ARCHETYPE: dict[str, str] = {
+    "coding": "swe_coder",
+    "math": "stem_phd",
+    "physics": "stem_phd",
+    "chemistry": "stem_phd",
+    "biology": "stem_phd",
+    "medicine": "licensed_professional",
+    "law": "licensed_professional",
+    "finance": "finance_sme",
+    "engineering": "domain_engineer",
+    "creative writing": "creative_writer",
+    "languages": "bilingual",
+    "humanities": "humanities_phd",
+    "general": "creative_writer",
+}
 
 
 def archetypes() -> dict:
@@ -423,4 +453,333 @@ def comparison_to_markdown(c: ProfileComparison) -> str:
     def bl(items): return "\n".join(f"- {i}" for i in items) or "- (none)"
     return ("## Strengths\n" + bl(c.strengths) + "\n\n## Gaps\n" + bl(c.gaps) +
             "\n\n## Priority actions\n" + "\n".join(f"{i}. {a}" for i, a in enumerate(c.priority_actions, 1)) + "\n")
+
+
+def _parse_education_dates(dates: str) -> tuple[str, str]:
+    text = (dates or "").strip()
+    if not text:
+        return "", ""
+    parts = re.split(r"\s*[-–—]\s*", text, maxsplit=1)
+    if len(parts) == 2:
+        return parts[0].strip(), parts[1].strip()
+    return text, ""
+
+
+def _credential_from_text(text: str) -> Credential:
+    raw = (text or "").strip()
+    if not raw:
+        return Credential()
+    if "," in raw:
+        name, rest = raw.split(",", 1)
+        return Credential(name=name.strip(), issuer=rest.strip())
+    return Credential(name=raw)
+
+
+def suggestion_to_master_profile(s: SuggestedBenchmark) -> MasterProfile:
+    """In-memory MasterProfile for scoring — never written to profile/people/."""
+    sample = s.sample
+    skills = list(sample.skills)
+    for group in sample.skill_groups:
+        skills.extend(group.items)
+    # Dedupe preserving order
+    seen: set[str] = set()
+    flat_skills: list[str] = []
+    for item in skills:
+        key = item.strip().casefold()
+        if not key or key in seen:
+            continue
+        seen.add(key)
+        flat_skills.append(item.strip())
+
+    domains = [d for d in (s.inferred_domain, s.inferred_industry) if (d or "").strip()]
+    domains.extend(domains_in(" ".join(domains + flat_skills + [sample.about or "", sample.headline or ""])))
+    # Unique domains preserving order
+    dom_seen: set[str] = set()
+    uniq_domains: list[str] = []
+    for d in domains:
+        key = d.strip().casefold()
+        if not key or key in dom_seen:
+            continue
+        dom_seen.add(key)
+        uniq_domains.append(d.strip())
+
+    licenses = [_credential_from_text(x) for x in (sample.licenses or [])]
+    certifications = [_credential_from_text(x) for x in (sample.certifications or [])]
+    if not licenses and not certifications:
+        licenses = [_credential_from_text(x) for x in (sample.licenses_certs or [])]
+
+    education: list[Education] = []
+    for edu in sample.education:
+        start, end = _parse_education_dates(edu.dates)
+        education.append(Education(
+            school=edu.school, degree=edu.degree, field=edu.field,
+            start=start, end=end, details=list(edu.details or []),
+        ))
+
+    return MasterProfile(
+        basics=Basics(
+            name=s.persona_name or s.for_candidate or "",
+            headline=sample.headline or "",
+        ),
+        summary=sample.about or "",
+        target_roles=[sample.archetype] if sample.archetype else [],
+        experience=[
+            Experience(
+                company=role.company, title=role.title, start=role.start, end=role.end,
+                location=role.location, bullets=list(role.bullets or []),
+            )
+            for role in sample.experience
+        ],
+        education=education,
+        licenses=[c for c in licenses if c.name],
+        certifications=[c for c in certifications if c.name],
+        projects=[
+            Project(name=p.name, description=p.description, link=p.link or "")
+            for p in sample.projects
+        ],
+        domains=uniq_domains,
+        tools=flat_skills[:24],
+        coding=[sk for sk in flat_skills if any(
+            tok in sk.casefold() for tok in ("python", "java", "c++", "typescript", "javascript", "golang", "rust", "sql")
+        )],
+    )
+
+
+def _suggestion_blob(s: SuggestedBenchmark) -> str:
+    sample = s.sample
+    parts = [
+        s.inferred_domain, s.inferred_industry, sample.archetype, sample.headline, sample.about,
+        " ".join(sample.skills),
+        " ".join(item for g in sample.skill_groups for item in g.items),
+        " ".join(b for role in sample.experience for b in role.bullets),
+    ]
+    return " ".join(p for p in parts if p)
+
+
+def _resolve_archetype_keys(s: SuggestedBenchmark) -> list[str]:
+    """Ordered archetype keys that best describe this teaching model."""
+    arch = archetypes()
+    label = (s.sample.archetype or "").strip()
+    keys: list[str] = []
+    if label in arch:
+        keys.append(label)
+    else:
+        label_cf = label.casefold()
+        for key, meta in arch.items():
+            name = str(meta.get("name") or "").casefold()
+            if not label_cf:
+                break
+            if label_cf == name or label_cf == key.casefold() or key.casefold().replace("_", " ") in label_cf:
+                keys.append(key)
+                break
+            if name and (name in label_cf or label_cf in name):
+                keys.append(key)
+                break
+
+    blob = _suggestion_blob(s)
+    for domain in domains_in(blob):
+        mapped = _DOMAIN_TO_ARCHETYPE.get(domain)
+        if mapped and mapped in arch and mapped not in keys:
+            keys.append(mapped)
+
+    if not keys and "creative_writer" in arch:
+        keys.append("creative_writer")
+    return keys
+
+
+def recommend_job_types(s: SuggestedBenchmark) -> list[dict[str, Any]]:
+    """Archetype / taxonomy job kinds when no collected posting scores high enough."""
+    arch = archetypes()
+    keys = _resolve_archetype_keys(s)
+    out: list[dict[str, Any]] = []
+    for key in keys:
+        meta = arch.get(key) or {}
+        roles = list(meta.get("roles") or [])
+        out.append({
+            "key": key,
+            "name": meta.get("name") or key,
+            "description": meta.get("description") or "",
+            "roles": roles,
+            "source": "archetype",
+        })
+
+    blob = _suggestion_blob(s)
+    found_domains = domains_in(blob)
+    if found_domains:
+        out.append({
+            "key": "taxonomy_domains",
+            "name": "Taxonomy domains",
+            "description": "Subject areas detected on this teaching model.",
+            "roles": [f"AI Tutor / SME - {d}" for d in found_domains[:6]],
+            "source": "taxonomy",
+        })
+    return out
+
+
+def _title_examples(types: list[dict[str, Any]], *, limit: int = 8) -> list[str]:
+    titles: list[str] = []
+    seen: set[str] = set()
+    for entry in types:
+        for role in entry.get("roles") or []:
+            text = str(role).strip()
+            key = text.casefold()
+            if not text or key in seen:
+                continue
+            seen.add(key)
+            titles.append(text)
+            if len(titles) >= limit:
+                return titles
+    return titles
+
+
+def _latest_analyses() -> dict[int, JobAnalysis]:
+    with db.session() as s:
+        best: dict[int, JobAnalysis] = {}
+        for a in s.exec(select(JobAnalysis).order_by(JobAnalysis.id)).all():
+            best[a.job_id] = a
+        return best
+
+
+def jobs_for_suggestion(
+    s: SuggestedBenchmark,
+    *,
+    min_fit: float = DEFAULT_SUITABLE_MIN_FIT,
+) -> dict[str, Any]:
+    """Score analyzed jobs in memory; fall back to job types when none meet min_fit.
+
+    Never writes teaching-model fits onto JobAnalysis rows.
+    """
+    profile = suggestion_to_master_profile(s)
+    matches: list[dict[str, Any]] = []
+    analyses = _latest_analyses()
+    with db.session() as sess:
+        for jid, analysis in analyses.items():
+            job = sess.get(Job, jid)
+            if not job:
+                continue
+            try:
+                req = JobRequirements.model_validate_json(analysis.data_json)
+            except Exception:  # noqa: BLE001 — skip corrupt analysis rows
+                continue
+            score, _gaps = score_fit(req, profile, job.description or "")
+            if score < min_fit:
+                continue
+            matches.append({
+                "job_id": job.id,
+                "company": job.company,
+                "title": job.title,
+                "fit": score,
+                "domain": req.domain or "",
+                "task_types": list(req.task_types or []),
+                "pay": job.pay or "",
+            })
+    matches.sort(key=lambda row: (-row["fit"], row["job_id"]))
+    if matches:
+        return {
+            "mode": "jobs",
+            "min_fit": min_fit,
+            "matches": matches,
+            "types": [],
+            "title_examples": [],
+            "persona_name": s.persona_name or s.for_candidate or "",
+            "inferred_domain": s.inferred_domain or "",
+        }
+
+    types = recommend_job_types(s)
+    return {
+        "mode": "types",
+        "min_fit": min_fit,
+        "matches": [],
+        "types": types,
+        "title_examples": _title_examples(types),
+        "persona_name": s.persona_name or s.for_candidate or "",
+        "inferred_domain": s.inferred_domain or "",
+    }
+
+
+def suitable_report_markdown(result: dict[str, Any]) -> str:
+    """Human-readable report for CLI / dashboard / suitable_jobs.md."""
+    name = result.get("persona_name") or "virtual candidate"
+    domain = result.get("inferred_domain") or "their domain"
+    min_fit = result.get("min_fit", DEFAULT_SUITABLE_MIN_FIT)
+    lines = [
+        f"# Suitable jobs for {name}",
+        "",
+        f"_Teaching model domain: {domain}. Interview threshold: fit >= {min_fit:.0f}._",
+        "",
+    ]
+    if result.get("mode") == "jobs":
+        lines += ["## Collected jobs that fit", ""]
+        for row in result.get("matches") or []:
+            pay = f" | {row['pay']}" if row.get("pay") else ""
+            tasks = ", ".join(row.get("task_types") or []) or "—"
+            lines.append(
+                f"- **#{row['job_id']}** fit {row['fit']:.0f} — {row['company']}: {row['title']} "
+                f"({row.get('domain') or 'domain n/a'}; {tasks}){pay}"
+            )
+        lines.append("")
+        return "\n".join(lines)
+
+    lines += [
+        "## No collected jobs met the fit bar",
+        "",
+        "Use these **job kinds** when collecting or coaching next:",
+        "",
+    ]
+    for entry in result.get("types") or []:
+        roles = ", ".join(entry.get("roles") or []) or "—"
+        lines += [
+            f"### {entry.get('name') or entry.get('key')}",
+            f"- Source: {entry.get('source')}",
+            f"- {entry.get('description') or ''}".rstrip(),
+            f"- Example titles: {roles}",
+            "",
+        ]
+    examples = result.get("title_examples") or []
+    if examples:
+        lines += ["## Title examples to collect", ""]
+        lines += [f"- {t}" for t in examples]
+        lines.append("")
+    return "\n".join(lines)
+
+
+def suggestion_dirs() -> list[Path]:
+    root = config.OUTPUT_DIR / "suggestions"
+    if not root.exists():
+        return []
+    return sorted(
+        [p for p in root.iterdir() if p.is_dir() and (p / "suggestion.json").exists()],
+        key=lambda p: p.stat().st_mtime,
+        reverse=True,
+    )
+
+
+def load_suggestion_dir(folder: Path | str) -> SuggestedBenchmark:
+    path = Path(folder)
+    if path.is_file() and path.name == "suggestion.json":
+        path = path.parent
+    json_path = path / "suggestion.json"
+    if not json_path.exists():
+        raise FileNotFoundError(f"No suggestion.json in {path}")
+    return SuggestedBenchmark.model_validate_json(json_path.read_text(encoding="utf-8"))
+
+
+def suitable_for_suggestion_dir(
+    folder: Path | str | None = None,
+    *,
+    min_fit: float = DEFAULT_SUITABLE_MIN_FIT,
+) -> tuple[dict[str, Any], Path, Path]:
+    """Resolve a suggestion folder, score/types, and write suitable_jobs.md."""
+    if folder is None:
+        dirs = suggestion_dirs()
+        if not dirs:
+            raise FileNotFoundError("No teaching models under output/suggestions/")
+        folder = dirs[0]
+    folder_path = Path(folder)
+    suggestion = load_suggestion_dir(folder_path)
+    result = jobs_for_suggestion(suggestion, min_fit=min_fit)
+    md = suitable_report_markdown(result)
+    out = folder_path / "suitable_jobs.md"
+    out.write_text(md, encoding="utf-8")
+    return result, folder_path, out
 

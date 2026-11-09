@@ -1012,6 +1012,57 @@ def teaching_workspace() -> None:
         _download(folder, "resume.docx", "Download resume")
         _download(folder, "resume.html", "Download HTML")
         _download(folder, "profile.md", "Download notes")
+        if st.button(
+            "Suitable jobs / types",
+            icon=":material/work:",
+            key=f"suitable_jobs_{folder.name}",
+            help="Score collected jobs against this teaching model (in memory). "
+                 "If none reach interview fit (≥60), recommend job types to collect.",
+            disabled=data is None,
+        ):
+            try:
+                result, _, report_path = sm.suitable_for_suggestion_dir(folder)
+                st.session_state[f"suitable_result_{folder.name}"] = result
+                st.session_state[f"suitable_report_{folder.name}"] = str(report_path)
+                st.toast(
+                    "Matched collected jobs"
+                    if result.get("mode") == "jobs"
+                    else "No strong job hits — showing job types"
+                )
+            except Exception as e:  # noqa: BLE001
+                st.error(str(e))
+
+    suitable = st.session_state.get(f"suitable_result_{folder.name}")
+    if isinstance(suitable, dict):
+        with st.container(border=True):
+            if suitable.get("mode") == "jobs":
+                st.markdown("**Collected jobs that fit this teaching model**")
+                rows = [
+                    {
+                        "id": row["job_id"],
+                        "fit": row["fit"],
+                        "company": row["company"],
+                        "title": row["title"],
+                        "domain": row.get("domain") or "",
+                    }
+                    for row in suitable.get("matches") or []
+                ]
+                st.dataframe(rows, hide_index=True, width="stretch")
+            else:
+                st.markdown("**No collected jobs met fit ≥ 60 — suitable job kinds**")
+                for entry in suitable.get("types") or []:
+                    roles = ", ".join(entry.get("roles") or []) or "—"
+                    st.markdown(
+                        f"- **{entry.get('name') or entry.get('key')}** "
+                        f"({entry.get('source')}): {entry.get('description') or ''}\n"
+                        f"  - Titles: {roles}"
+                    )
+                examples = suitable.get("title_examples") or []
+                if examples:
+                    st.caption("Collect next: " + " · ".join(examples[:8]))
+            report = st.session_state.get(f"suitable_report_{folder.name}")
+            if report:
+                st.caption(f"Saved `{Path(report).name}` in this model folder.")
 
     notes_tab, profile_tab, resume_tab = st.tabs(["Coach notes", "Full profile", "Resume"])
     with notes_tab:

@@ -13,7 +13,15 @@ from typing import Any
 
 from . import api as api_llm
 from .errors import LLMError
-from .prefs import BROWSERS, ENGINES, ENGINE_LABELS, load_prefs, save_prefs
+from .prefs import (
+    BROWSERS,
+    ENGINES,
+    ENGINE_LABELS,
+    SEED_MODES,
+    load_prefs,
+    normalize_seed_mode,
+    save_prefs,
+)
 
 _MAX_JOBS = 50
 _jobs: dict[str, dict[str, Any]] = {}
@@ -54,8 +62,10 @@ def status_payload(bridge_status: dict | None = None) -> dict[str, Any]:
         "engine": engine,
         "engine_label": ENGINE_LABELS.get(engine, engine),
         "browser": prefs.get("browser", "gpt"),
+        "suggest_seed_mode": prefs.get("suggest_seed_mode", "last_company"),
         "engines": list(ENGINES),
         "browsers": list(BROWSERS),
+        "seed_modes": list(SEED_MODES),
         "openai": {"ok": openai_ok, "detail": openai_msg},
         "anthropic": {"ok": anthropic_ok, "detail": anthropic_msg},
         "bridge": bridge_status or {},
@@ -66,9 +76,11 @@ def status_payload(bridge_status: dict | None = None) -> dict[str, Any]:
 def apply_prefs(body: dict) -> dict[str, Any]:
     engine = body.get("engine")
     browser = body.get("browser")
+    seed_mode = body.get("suggest_seed_mode", body.get("seed_mode"))
     data = save_prefs(
         engine=None if engine is None else str(engine),
         browser=None if browser is None else str(browser),
+        suggest_seed_mode=None if seed_mode is None else str(seed_mode),
     )
     return {"ok": True, **data, "engine_label": ENGINE_LABELS.get(data["engine"], data["engine"])}
 
@@ -101,7 +113,8 @@ def enqueue_suggest(body: dict) -> dict[str, Any]:
     title = str(body.get("title") or "").strip()
     notes = str(body.get("notes") or "").strip()
     jd = str(body.get("jd") or "").strip()
-    profile_seed = _profile_seed_from_body(body)
+    seed_mode = normalize_seed_mode(body.get("seed_mode") or body.get("suggest_seed_mode"))
+    profile_seed = _profile_seed_from_body(body) if seed_mode == "provided" else {}
     if not name or not company:
         return {"ok": False, "error": "name and last_company are required", "code": "bad_request"}
 
@@ -122,13 +135,14 @@ def enqueue_suggest(body: dict) -> dict[str, Any]:
             "title": title,
             "notes": notes,
             "jd": jd,
+            "seed_mode": seed_mode,
             "profile_seed": profile_seed,
         },
     }
     with _jobs_lock:
         _jobs[job_id] = job
         _trim_jobs()
-    _pool.submit(_run_suggest, job_id, name, company, title, notes, jd, profile_seed)
+    _pool.submit(_run_suggest, job_id, name, company, title, notes, jd, profile_seed, seed_mode)
     return {"ok": True, "id": job_id, "status": "queued"}
 
 
@@ -140,6 +154,7 @@ def _run_suggest(
     notes: str,
     jd: str,
     profile_seed: dict | None = None,
+    seed_mode: str = "last_company",
 ) -> None:
     with _jobs_lock:
         job = _jobs.get(job_id)
@@ -150,7 +165,13 @@ def _run_suggest(
         from ..pipelines.samples import suggest_sample
 
         suggestion, paths = suggest_sample(
-            name, company, title=title, notes=notes, jd=jd, profile_seed=profile_seed
+            name,
+            company,
+            title=title,
+            notes=notes,
+            jd=jd,
+            profile_seed=profile_seed,
+            seed_mode=seed_mode,
         )
         with _jobs_lock:
             job = _jobs[job_id]

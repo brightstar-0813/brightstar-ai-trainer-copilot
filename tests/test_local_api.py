@@ -122,8 +122,9 @@ async def test_suggest_enqueue_and_poll(api_bridge):
         persona_name = "AA"
         why_this_shape = "because"
 
-    def fake_suggest(name, company, title="", notes="", jd="", profile_seed=None):
+    def fake_suggest(name, company, title="", notes="", jd="", profile_seed=None, seed_mode="last_company"):
         fake_suggest.seen_seed = profile_seed
+        fake_suggest.seen_mode = seed_mode
         return FakeSuggestion(), fake_paths
 
     with patch("jt.pipelines.samples.suggest_sample", fake_suggest):
@@ -135,6 +136,7 @@ async def test_suggest_enqueue_and_poll(api_bridge):
                 "name": "AA",
                 "last_company": "Morgan Stanley",
                 "title": "Engineer",
+                "seed_mode": "provided",
                 "profile_seed": {
                     "skills": ["PLC"],
                     "education": [{"school": "MIT", "degree": "BSc"}],
@@ -154,6 +156,7 @@ async def test_suggest_enqueue_and_poll(api_bridge):
 
     assert data["job"]["status"] == "done"
     assert data["job"]["paths"]["docx"] == "r.docx"
+    assert fake_suggest.seen_mode == "provided"
     assert fake_suggest.seen_seed == {
         "skills": ["PLC"],
         "education": [{"school": "MIT", "degree": "BSc"}],

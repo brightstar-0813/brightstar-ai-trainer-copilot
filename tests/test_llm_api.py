@@ -79,6 +79,13 @@ def test_openai_ask_json_and_repair(clean_keys, monkeypatch, tmp_path):
     assert calls["n"] == 2
 
 
+def test_task_timeout_from_models_yaml():
+    tc = llm_client.task_config("sample_suggest")
+    assert llm_client._task_timeout(tc, None) == 900
+    assert llm_client._task_timeout(tc, 120) == 120
+    assert llm_client._task_timeout({}, None) == 300
+
+
 def test_openai_missing_key(clean_keys):
     with pytest.raises(LLMError) as e:
         api_llm.ask("openai", "hi")

@@ -228,18 +228,32 @@ def _dispatch(prov: str, prompt: str, *, new_chat: bool = True, url: str | None 
             client.__exit__(None, None, None)
 
 
+_DEFAULT_TIMEOUT = 300
+
+
+def _task_timeout(tc: dict, timeout: int | None) -> int:
+    """Caller timeout wins; else models.yaml task timeout; else 300s."""
+    if timeout is not None:
+        return int(timeout)
+    configured = tc.get("timeout")
+    if configured is None or configured == "":
+        return _DEFAULT_TIMEOUT
+    return int(configured)
+
+
 # --------------------------------------------------------------------------- public API
 def ask(task: str, prompt_vars: dict | None = None, *, prompt: str | None = None, provider: str | None = None,
-        timeout: int = 300, on_progress: Callable[[dict], None] | None = None) -> str:
+        timeout: int | None = None, on_progress: Callable[[dict], None] | None = None) -> str:
     """Render prompts/<task>.md (or use `prompt`) and send it to the provider configured for `task`."""
     tc = task_config(task)
     configured = provider if provider is not None else tc.get("provider", "auto")
     prov = route_provider(configured, explicit=provider is not None)
+    job_timeout = _task_timeout(tc, timeout)
     text = prompt if prompt is not None else render_prompt(task, **(prompt_vars or {}))
     start = time.time()
     try:
         reply = _dispatch(prov, text, new_chat=bool(tc.get("new_chat", True)),
-                          url=provider_url(prov), timeout=timeout, on_progress=on_progress)
+                          url=provider_url(prov), timeout=job_timeout, on_progress=on_progress)
         _log_call(task, prov, text, reply, True, "", time.time() - start)
         return reply
     except LLMError as e:
@@ -248,12 +262,13 @@ def ask(task: str, prompt_vars: dict | None = None, *, prompt: str | None = None
 
 
 def ask_json(task: str, schema: type[T], prompt_vars: dict | None = None, *, provider: str | None = None,
-             max_repairs: int = 2, timeout: int = 300,
+             max_repairs: int = 2, timeout: int | None = None,
              on_progress: Callable[[dict], None] | None = None) -> T:
     """Ask and validate against a pydantic model; on invalid output, repair in the same chat."""
     tc = task_config(task)
     configured = provider if provider is not None else tc.get("provider", "auto")
     prov = route_provider(configured, explicit=provider is not None)
+    job_timeout = _task_timeout(tc, timeout)
     prompt = render_prompt(task, **(prompt_vars or {})) + schema_instructions(schema)
     url = provider_url(prov)
     start = time.time()
@@ -271,10 +286,10 @@ def ask_json(task: str, schema: type[T], prompt_vars: dict | None = None, *, pro
         msg = prompt
         for i in range(max_repairs + 1):
             if use_api:
-                reply = _dispatch(prov, msg, timeout=timeout, json_mode=True, messages=messages)
+                reply = _dispatch(prov, msg, timeout=job_timeout, json_mode=True, messages=messages)
             else:
                 reply = _dispatch(prov, msg, new_chat=(i == 0) and bool(tc.get("new_chat", True)),
-                                  url=url, timeout=timeout, on_progress=on_progress, bc=bc_ctx)
+                                  url=url, timeout=job_timeout, on_progress=on_progress, bc=bc_ctx)
             try:
                 data = extract_json(reply)
                 obj = schema.model_validate(data)

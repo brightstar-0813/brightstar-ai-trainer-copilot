@@ -41,6 +41,7 @@ from jt.llm.prefs import (  # noqa: E402
     load_prefs,
     preferred_resume_accent,
     preferred_resume_template,
+    preferred_suggest_seed_mode,
     save_prefs,
 )
 from jt.models import Application, GapQuestion, Job, JobAnalysis, LLMCall, TailoredResume, utcnow  # noqa: E402
@@ -48,6 +49,10 @@ from jt.pipelines import analyze as an  # noqa: E402
 from jt.pipelines import profile as pf  # noqa: E402
 from jt.pipelines import samples as sm  # noqa: E402
 from jt.pipelines import tailor as tl  # noqa: E402
+
+# Streamlit keeps jt.* in sys.modules across reruns; reload so dashboard picks up
+# newly added pipeline helpers (e.g. parse_profile_dump) without a full restart.
+importlib.reload(sm)
 from jt.render.resume import render_docx, render_html  # noqa: E402
 from jt.render.styles import get_style, list_accents, list_styles, resolve_accent_color  # noqa: E402
 from jt.schemas import (  # noqa: E402
@@ -1517,6 +1522,18 @@ def page_samples() -> None:
         ":material/school:",
     )
     _ensure_suggest_lists()
+    # Apply deferred mutations before any keyed widgets exist (Streamlit forbids
+    # writing a widget key after that widget is instantiated in the same run).
+    if st.session_state.pop("_suggest_do_clear", False):
+        _clear_suggest_form()
+    fill_status: str | None = None
+    pending_dump = st.session_state.pop("_suggest_do_fill_dump", None)
+    if isinstance(pending_dump, str):
+        fill_status = _apply_suggest_profile_dump(pending_dump)
+        if fill_status == "ok":
+            st.session_state["suggest_profile_file_nonce"] = (
+                int(st.session_state.get("suggest_profile_file_nonce") or 0) + 1
+            )
     with st.container(border=True):
         st.subheader("Profile dump", icon=":material/upload_file:")
         st.caption(
@@ -1552,18 +1569,15 @@ def page_samples() -> None:
             if not dump:
                 st.warning("Paste or upload a profile text first.", icon=":material/warning:")
             else:
-                status = _apply_suggest_profile_dump(dump)
-                if status == "empty":
-                    st.warning("Could not read that profile text.", icon=":material/warning:")
-                else:
-                    st.session_state["suggest_profile_file_nonce"] = (
-                        int(st.session_state.get("suggest_profile_file_nonce") or 0) + 1
-                    )
-                    st.success(
-                        "Form filled from profile dump. Review fields, then Build.",
-                        icon=":material/check_circle:",
-                    )
-                    st.rerun()
+                st.session_state["_suggest_do_fill_dump"] = dump
+                st.rerun()
+        if fill_status == "empty":
+            st.warning("Could not read that profile text.", icon=":material/warning:")
+        elif fill_status == "ok":
+            st.success(
+                "Form filled from profile dump. Review fields, then Build.",
+                icon=":material/check_circle:",
+            )
 
         st.divider()
         st.subheader("Who and where", icon=":material/badge:")
@@ -1736,6 +1750,19 @@ def page_samples() -> None:
                     placeholder="PLC, lockout, FANUC",
                 )
 
+        if "suggest_use_provided" not in st.session_state:
+            st.session_state["suggest_use_provided"] = (
+                preferred_suggest_seed_mode() == "provided"
+            )
+        use_provided = st.checkbox(
+            "Use provided employers / schools / certs",
+            help=(
+                "On: lock employers, schools, licenses, and certifications to what you "
+                "pasted or filled in. Skills, bullets, and projects may still be generated. "
+                "Off: original mode — keep only the last company and invent peer employers."
+            ),
+            key="suggest_use_provided",
+        )
         with st.container(horizontal=True, vertical_alignment="center"):
             submitted = st.button(
                 "Build teaching profile",
@@ -1749,7 +1776,7 @@ def page_samples() -> None:
                 key="suggest_clear",
             )
     if cleared:
-        _clear_suggest_form()
+        st.session_state["_suggest_do_clear"] = True
         st.rerun()
     if submitted:
         jd_text = (jd or "").strip()
@@ -1764,6 +1791,8 @@ def page_samples() -> None:
             (company or "").strip() or str(parsed_dump.get("last_company") or "").strip()
         )
         title_val = (title or "").strip() or str(parsed_dump.get("title") or "").strip()
+        seed_mode = "provided" if use_provided else "last_company"
+        save_prefs(suggest_seed_mode=seed_mode)
         if not name_val or not company_val:
             st.error(
                 "Add a name and a real last company (or Fill form from a profile dump).",
@@ -1772,32 +1801,50 @@ def page_samples() -> None:
         else:
             if not open_ai_session():
                 st.stop()
-            profile_seed = sm.merge_profile_seed(
-                _collect_profile_seed(),
-                parsed_dump.get("profile_seed"),
-            )
-            notes_val = sm.merge_notes(
-                (notes or "").strip(),
-                str(parsed_dump.get("notes") or ""),
-                dump,
-            )
-            req = config.DATA_DIR / "suggestion_request.yaml"
-            req.parent.mkdir(parents=True, exist_ok=True)
-            payload = {
-                "name": name_val,
-                "last_company": company_val,
-                "title": title_val,
-                "notes": notes_val,
-                "jd": jd_text,
-            }
-            if profile_seed:
-                payload["profile_seed"] = profile_seed
-            req.write_text(
-                yaml.safe_dump(payload, allow_unicode=True, sort_keys=False),
-                encoding="utf-8",
-            )
-            run_bg(f"suggest {company_val}", "samples", "suggest", "--request", str(req))
-            st.session_state["suggestion_pending"] = sm._slug(name_val, company_val)
+            profile_seed = {}
+            if seed_mode == "provided":
+                profile_seed = sm.merge_profile_seed(
+                    _collect_profile_seed(),
+                    parsed_dump.get("profile_seed"),
+                )
+                notes_val = sm.merge_notes(
+                    (notes or "").strip(),
+                    str(parsed_dump.get("notes") or ""),
+                    dump,
+                )
+            else:
+                # Original mode: do not feed the dump/seed into the model.
+                notes_val = (notes or "").strip()
+            if seed_mode == "provided" and not (
+                profile_seed.get("experience")
+                or profile_seed.get("education")
+                or profile_seed.get("licenses")
+                or profile_seed.get("certifications")
+            ):
+                st.error(
+                    "Turn on provided mode only after adding experience, education, "
+                    "licenses, or certifications (or Fill form from a profile dump).",
+                    icon=":material/error:",
+                )
+            else:
+                req = config.DATA_DIR / "suggestion_request.yaml"
+                req.parent.mkdir(parents=True, exist_ok=True)
+                payload = {
+                    "name": name_val,
+                    "last_company": company_val,
+                    "title": title_val,
+                    "notes": notes_val,
+                    "jd": jd_text,
+                    "seed_mode": seed_mode,
+                }
+                if seed_mode == "provided" and profile_seed:
+                    payload["profile_seed"] = profile_seed
+                req.write_text(
+                    yaml.safe_dump(payload, allow_unicode=True, sort_keys=False),
+                    encoding="utf-8",
+                )
+                run_bg(f"suggest {company_val}", "samples", "suggest", "--request", str(req))
+                st.session_state["suggestion_pending"] = sm._slug(name_val, company_val)
 
     with st.expander("Recover from ChatGPT JSON (timeout)", icon=":material/content_paste:"):
         st.caption(

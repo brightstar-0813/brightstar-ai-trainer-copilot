@@ -26,12 +26,26 @@ def prefs_path() -> Path:
 BROWSERS = ("gpt", "claude")
 BROWSER_LABELS = {"gpt": "ChatGPT", "claude": "Claude"}
 
+SEED_MODES = ("last_company", "provided")
+SEED_MODE_LABELS = {
+    "last_company": "Last company only (invent peers)",
+    "provided": "Use provided employers / schools / certs",
+}
+
 
 def _browser_name(value: str | None) -> str:
     raw = str(value or "gpt").strip().lower()
     if raw in ("chatgpt", "chat-gpt"):
         return "gpt"
     return raw if raw in BROWSERS else "gpt"
+
+
+def normalize_seed_mode(value: str | None) -> str:
+    """Teaching-model seed policy: last_company (default) or provided."""
+    raw = str(value or "last_company").strip().lower().replace("-", "_")
+    if raw in ("provided", "seed", "full", "on", "true", "1"):
+        return "provided"
+    return "last_company"
 
 
 def load_prefs() -> dict:
@@ -42,6 +56,7 @@ def load_prefs() -> dict:
         "resume_template": "ats-modern",
         "resume_accent": "",
         "active_profile": "",
+        "suggest_seed_mode": "last_company",
     }
     if not path.exists():
         return dict(defaults)
@@ -58,6 +73,7 @@ def load_prefs() -> dict:
         "resume_template": str(data.get("resume_template") or "ats-modern").strip() or "ats-modern",
         "resume_accent": str(data.get("resume_accent") or "").strip(),
         "active_profile": str(data.get("active_profile") or "").strip().lower(),
+        "suggest_seed_mode": normalize_seed_mode(data.get("suggest_seed_mode")),
     }
 
 
@@ -68,6 +84,7 @@ def save_prefs(
     resume_template: str | None = None,
     resume_accent: str | None = None,
     active_profile: str | None = None,
+    suggest_seed_mode: str | None = None,
 ) -> dict:
     data = load_prefs()
     if engine is not None:
@@ -83,6 +100,8 @@ def save_prefs(
         data["resume_accent"] = str(resume_accent or "").strip()
     if active_profile is not None:
         data["active_profile"] = str(active_profile or "").strip().lower()
+    if suggest_seed_mode is not None:
+        data["suggest_seed_mode"] = normalize_seed_mode(suggest_seed_mode)
     config.ensure_dirs()
     prefs_path().write_text(yaml.safe_dump(data, sort_keys=False), encoding="utf-8")
     return data
@@ -94,6 +113,10 @@ def preferred_resume_template() -> str:
 
 def preferred_resume_accent() -> str:
     return str(load_prefs().get("resume_accent") or "")
+
+
+def preferred_suggest_seed_mode() -> str:
+    return normalize_seed_mode(load_prefs().get("suggest_seed_mode"))
 
 
 def preferred_browser() -> str:

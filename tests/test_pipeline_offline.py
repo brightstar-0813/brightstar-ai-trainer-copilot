@@ -158,13 +158,16 @@ def env(tmp_path, monkeypatch):
     monkeypatch.setattr(config, "anthropic_api_key", lambda: "")
     monkeypatch.setenv("JT_LLM_ENGINE", "auto")
     prefs = {"engine": "auto", "browser": "gpt", "resume_template": "ats-modern",
-             "resume_accent": "", "active_profile": "test"}
+             "resume_accent": "", "active_profile": "test", "suggest_seed_mode": "last_company"}
     monkeypatch.setattr("jt.llm.prefs.load_prefs", lambda: dict(prefs))
 
     def _save_prefs(**kwargs):
         prefs.update({k: v for k, v in kwargs.items() if v is not None})
         if "active_profile" in kwargs and kwargs["active_profile"] is not None:
             prefs["active_profile"] = str(kwargs["active_profile"]).strip().lower()
+        if "suggest_seed_mode" in kwargs and kwargs["suggest_seed_mode"] is not None:
+            from jt.llm.prefs import normalize_seed_mode
+            prefs["suggest_seed_mode"] = normalize_seed_mode(kwargs["suggest_seed_mode"])
         return dict(prefs)
 
     monkeypatch.setattr("jt.llm.prefs.save_prefs", _save_prefs)
@@ -367,14 +370,84 @@ def test_profile_seed_normalizes_and_reaches_prompt(env):
         "Jane Example",
         "Fanuc",
         profile_seed=seed,
+        seed_mode="provided",
     )
     prompt = FakeBC.calls[-1]
-    assert "OPTIONAL PROFILE SEED" in prompt
+    assert "SEED MODE: provided facts" in prompt
+    assert "PROFILE SEED" in prompt
+    assert "fill missing career roles with other real US" not in prompt
     assert "Siemens" in prompt
     assert "Georgia Institute of Technology" in prompt
     assert "safety PLCs" in prompt
     assert "jane@example.com" in suggestion.contact
     assert "jane@example.com" in samples.sample_to_resume(suggestion).contact
+    companies = [r.company for r in suggestion.sample.experience]
+    assert companies[0] == "Fanuc"
+    assert "Siemens" in companies
+    assert all(c in {"Fanuc", "Siemens"} for c in companies)
+    assert [e.school for e in suggestion.sample.education] == ["Georgia Institute of Technology"]
+    assert suggestion.sample.licenses == ["PE, NCEES"]
+    assert suggestion.sample.certifications == []
+    assert suggestion.sample.projects  # model-generated projects kept
+    fanuc = next(r for r in suggestion.sample.experience if r.company == "Fanuc")
+    assert fanuc.bullets  # model-generated bullets kept
+
+
+def test_last_company_mode_ignores_profile_seed(env):
+    seed = samples.normalize_profile_seed({
+        "experience": [{"company": "Siemens", "title": "Controls engineer"}],
+        "education": [{"school": "MIT", "degree": "BSc"}],
+    })
+    suggestion, _ = samples.suggest_sample(
+        "Jane Example",
+        "Fanuc",
+        profile_seed=seed,
+        seed_mode="last_company",
+    )
+    prompt = FakeBC.calls[-1]
+    assert "SEED MODE: provided facts" not in prompt
+    assert "PROFILE SEED" not in prompt
+    assert "at least 20 years" in prompt
+    assert suggestion.sample.experience[0].company == "Fanuc"
+    # Invented peers from the fake LLM remain (original mode).
+    assert len(suggestion.sample.experience) >= 2
+
+
+def test_apply_provided_orgs_strips_invented_peers(env):
+    suggestion, _ = samples.suggest_sample("Jane Example", "Fanuc")
+    seed = {
+        "experience": [
+            {"company": "Fanuc", "title": "Controls Engineer", "start": "2019", "end": "2024"},
+            {"company": "Siemens", "title": "Controls engineer", "start": "2014", "end": "2019"},
+        ],
+        "education": [{"school": "Georgia Institute of Technology", "degree": "BSc", "field": "EE",
+                       "start": "2010", "end": "2014"}],
+        "licenses": [{"name": "PE", "issuer": "NCEES"}],
+        "certifications": [],
+    }
+    # Simulate an LLM that invented an extra school + employer after the seed.
+    suggestion.sample.experience.append(
+        samples.ResumeRole(
+            company="Honeywell",
+            title="Intern",
+            start="2012",
+            end="2014",
+            bullets=["Invented peer role"],
+        )
+    )
+    suggestion.sample.education.append(
+        samples.ResumeEducation(school="a state engineering university", degree="coursework", field="Controls")
+    )
+    suggestion.sample.certifications = ["Fake Cert, Nowhere"]
+    suggestion.sample.benchmarks = {"total_relevant_experience": "20+ years"}
+    fixed = samples.apply_provided_orgs(suggestion, seed, "Fanuc")
+    assert [r.company for r in fixed.sample.experience] == ["Fanuc", "Siemens"]
+    assert [e.school for e in fixed.sample.education] == ["Georgia Institute of Technology"]
+    assert fixed.sample.licenses == ["PE, NCEES"]
+    assert fixed.sample.certifications == []
+    assert "Invented peer role" not in " ".join(b for r in fixed.sample.experience for b in r.bullets)
+    assert fixed.sample.benchmarks["total_relevant_experience"] == "14 years"
+    assert fixed.sample.projects  # kept from model
 
 
 def test_profile_optimize_samples_and_compare(env):

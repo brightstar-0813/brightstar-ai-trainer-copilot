@@ -592,19 +592,25 @@ def samples_suggest(
         "--profile-file",
         help="LinkedIn-style profile .txt/.md dump; fills missing name/company/seed and merges into notes",
     ),
+    seed_mode: str = typer.Option(
+        None,
+        "--seed-mode",
+        help="last_company (default, invent peers) or provided (lock employers/schools/certs to seed)",
+    ),
     request: Path = typer.Option(
         None,
         "--request",
-        help="YAML with name, last_company, title, notes, jd, and optional LinkedIn-style profile_seed",
+        help="YAML with name, last_company, title, notes, jd, seed_mode, and optional LinkedIn-style profile_seed",
     ),
 ) -> None:
     """Build a teaching profile and resume for a virtual candidate.
 
     Uses the name on the model resume and the real last company as the latest role.
-    Other employers should be US high-ranking peers; universities and credentials are real.
+    seed_mode=last_company invents US high-ranking peers; seed_mode=provided locks orgs to the seed.
     """
     import yaml
 
+    from .llm.prefs import normalize_seed_mode
     from .pipelines.samples import (
         merge_notes,
         merge_profile_seed,
@@ -624,6 +630,7 @@ def samples_suggest(
     if profile_file is not None:
         profile_dump = profile_file.read_text(encoding="utf-8").strip()
         parsed = parse_profile_dump(profile_dump)
+    mode = normalize_seed_mode(seed_mode if seed_mode is not None else data.get("seed_mode"))
     name = (name or data.get("name") or parsed.get("name") or "").strip()
     company = (
         company
@@ -633,45 +640,60 @@ def samples_suggest(
         or ""
     ).strip()
     title = title or str(data.get("title") or parsed.get("title") or "")
-    notes = merge_notes(
-        str(notes or data.get("notes") or ""),
-        str(parsed.get("notes") or ""),
-        profile_dump,
-    )
     jd_text = (jd or "").strip()
     if not jd_text and jd_file:
         jd_text = jd_file.read_text(encoding="utf-8").strip()
     if not jd_text:
         jd_text = str(data.get("jd") or "").strip()
-    profile_seed = data.get("profile_seed")
-    if profile_seed is None:
-        profile_seed = {
-            key: data[key]
-            for key in (
-                "location",
-                "headline",
-                "about",
-                "email",
-                "phone",
-                "linkedin",
-                "contact",
-                "experience",
-                "education",
-                "licenses",
-                "certifications",
-                "skills",
-                "languages",
-                "projects",
-            )
-            if key in data
-        }
-    profile_seed = merge_profile_seed(profile_seed, parsed.get("profile_seed"))
+    profile_seed: dict = {}
+    if mode == "provided":
+        notes = merge_notes(
+            str(notes or data.get("notes") or ""),
+            str(parsed.get("notes") or ""),
+            profile_dump,
+        )
+        profile_seed = data.get("profile_seed")
+        if profile_seed is None:
+            profile_seed = {
+                key: data[key]
+                for key in (
+                    "location",
+                    "headline",
+                    "about",
+                    "email",
+                    "phone",
+                    "linkedin",
+                    "contact",
+                    "experience",
+                    "education",
+                    "licenses",
+                    "certifications",
+                    "skills",
+                    "languages",
+                    "projects",
+                )
+                if key in data
+            }
+        profile_seed = merge_profile_seed(profile_seed, parsed.get("profile_seed"))
+    else:
+        notes = str(notes or data.get("notes") or "").strip()
+        profile_seed = {}
     if not name or not company:
         rprint("[red]candidate name and last company are required[/red]")
         raise typer.Exit(1)
-    suggestion, paths = suggest_sample(
-        name, company, title=title, notes=notes, jd=jd_text, profile_seed=profile_seed
-    )
+    try:
+        suggestion, paths = suggest_sample(
+            name,
+            company,
+            title=title,
+            notes=notes,
+            jd=jd_text,
+            profile_seed=profile_seed,
+            seed_mode=mode,
+        )
+    except ValueError as e:
+        rprint(f"[red]{e}[/red]")
+        raise typer.Exit(1)
     rprint(f"[yellow]{suggestion.sample.label}[/yellow]")
     rprint(f"Virtual candidate: [bold]{suggestion.persona_name}[/bold]")
     rprint(f"Target: {suggestion.inferred_domain} / {suggestion.inferred_industry} ({suggestion.target_kind})")

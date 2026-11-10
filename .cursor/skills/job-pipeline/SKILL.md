@@ -25,11 +25,13 @@ Project root: `D:\Work\JobHunting\00_AI Trainer\AI Trainer Copiot`. Use `.\.venv
 - LinkedIn: `jt profile optimize` writes `output/linkedin_advice.md`.
 - Benchmarks: `jt samples generate`, `jt samples compare <archetype>`.
 - Teaching model: `jt samples suggest --name "<virtual candidate>" --company "<real last company>"`
-  with optional `--jd` / `--jd-file` and optional `--profile-file` (LinkedIn-style .txt/.md dump that
-  fills missing name/company/seed and merges into notes). Dashboard Teaching models has the same
-  paste/upload + Fill form flow. Writes a profile, resume, and coach notes under
-  `output/suggestions/`. The name is the virtual candidate. The last company is their latest employer
-  in the model; other employers must be US high-ranking peers, and universities/credentials stay real.
+  with optional `--jd` / `--jd-file`, optional `--profile-file` (LinkedIn-style .txt/.md dump), and
+  `--seed-mode last_company|provided` (default `last_company`). Dashboard Teaching models has the same
+  paste/upload + Fill form flow plus a "Use provided employers / schools / certs" toggle.
+  `provided` locks employers/schools/creds to the seed (skills/bullets/projects may still be generated);
+  `last_company` is the original invent-peers path. Writes under `output/suggestions/`.
+  The name is the virtual candidate. The last company is their latest employer in the model;
+  in last_company mode other employers must be US high-ranking peers, and universities/credentials stay real.
   JD-targeted runs write to a `*-jd` folder so the company-domain base is kept.
   When the JD needs more than a master's, the model should use PhD/postdoc/professional doctorate
   education from a real high-ranking university, listed as separate degree entries with the prior

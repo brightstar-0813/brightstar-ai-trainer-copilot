@@ -377,8 +377,9 @@ class SampleProfile(BaseModel):
 class TargetedSample(SampleProfile):
     """A complete illustrative benchmark: career, education, credentials, and projects."""
 
-    experience: list[ResumeRole] = Field(min_length=2)
-    education: list[ResumeEducation] = Field(min_length=1)
+    # min_length=1 on experience so provided-seed mode can keep a single last-company role.
+    experience: list[ResumeRole] = Field(min_length=1)
+    education: list[ResumeEducation] = Field(default_factory=list)
     projects: list[ResumeProject] = Field(min_length=1)
     skills: list[str] = Field(default_factory=list)
     skill_groups: list[SkillGroup] = Field(default_factory=list)

@@ -259,6 +259,9 @@ async function refreshStatus() {
     }
     if (data.engine) $('engine').value = data.engine;
     if (data.browser) $('browser').value = data.browser;
+    if (data.suggest_seed_mode) {
+      $('useProvided').checked = data.suggest_seed_mode === 'provided';
+    }
     if (data.auth_required) {
       $('detail').textContent = 'Bridge up, but token missing — wait a second or reload the extension.';
     }
@@ -273,6 +276,7 @@ async function savePrefs() {
     body: JSON.stringify({
       engine: $('engine').value,
       browser: $('browser').value,
+      suggest_seed_mode: $('useProvided').checked ? 'provided' : 'last_company',
     }),
   });
   if (!data.ok) {
@@ -339,11 +343,13 @@ async function build() {
   $('jobStatus').textContent = 'Connecting…';
   try {
     await chrome.runtime.sendMessage({ type: 'reconnect' }).catch(() => {});
+    const seedMode = $('useProvided').checked ? 'provided' : 'last_company';
     const pref = await api('/api/prefs', {
       method: 'POST',
       body: JSON.stringify({
         engine: $('engine').value,
         browser: $('browser').value,
+        suggest_seed_mode: seedMode,
       }),
     });
     if (!pref.data.ok) {
@@ -369,9 +375,12 @@ async function build() {
       title: $('title').value.trim(),
       notes: $('notes').value.trim(),
       jd: $('jd').value.trim(),
+      seed_mode: seedMode,
     };
-    const profileSeed = collectProfileSeed();
-    if (Object.keys(profileSeed).length) body.profile_seed = profileSeed;
+    if (seedMode === 'provided') {
+      const profileSeed = collectProfileSeed();
+      if (Object.keys(profileSeed).length) body.profile_seed = profileSeed;
+    }
     const { data } = await api('/api/suggest', {
       method: 'POST',
       body: JSON.stringify(body),

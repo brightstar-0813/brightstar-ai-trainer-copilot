@@ -12,7 +12,11 @@ from .. import config, db
 from ..analysis.fit import score_fit
 from ..analysis.taxonomy import domains_in
 from ..llm import ask_json
-from ..llm.prefs import preferred_resume_accent, preferred_resume_template
+from ..llm.prefs import (
+    normalize_seed_mode,
+    preferred_resume_accent,
+    preferred_resume_template,
+)
 from ..models import Job, JobAnalysis
 from ..render.resume import render_docx, render_html
 from ..schemas import (
@@ -25,6 +29,9 @@ from ..schemas import (
     ProfileComparison,
     Project,
     ResumeContent,
+    ResumeEducation,
+    ResumeProject,
+    ResumeRole,
     SampleProfile,
     SuggestedBenchmark,
     load_profile,
@@ -181,6 +188,162 @@ def guard_suggestion(s: SuggestedBenchmark, candidate_name: str, last_company: s
             if match_at != 0:
                 role = s.sample.experience.pop(match_at)
                 s.sample.experience.insert(0, role)
+    return s
+
+
+def _credential_line(entry: dict) -> str:
+    bits = [_clean_text(entry.get("name")), _clean_text(entry.get("issuer")), _clean_text(entry.get("year"))]
+    return ", ".join(b for b in bits if b)
+
+
+def _seed_dates(start: object = "", end: object = "") -> str:
+    start_s, end_s = _clean_text(start), _clean_text(end)
+    if start_s and end_s:
+        return f"{start_s} - {end_s}"
+    return start_s or end_s
+
+
+def _year_tokens(*values: object) -> list[int]:
+    years: list[int] = []
+    for value in values:
+        for match in re.finditer(r"(?:19|20)\d{2}", str(value or "")):
+            years.append(int(match.group(0)))
+    return years
+
+
+def _timeline_years_label(seed: dict) -> str:
+    """Honest coach marker from provided role dates (not a padded 20+ invent)."""
+    years: list[int] = []
+    for role in seed.get("experience") or []:
+        years.extend(_year_tokens(role.get("start"), role.get("end")))
+    for edu in seed.get("education") or []:
+        years.extend(_year_tokens(edu.get("start"), edu.get("end")))
+    if not years:
+        return "provided timeline"
+    span = max(years) - min(years)
+    if span <= 0:
+        return "provided timeline"
+    if span >= 20:
+        return f"{span}+ years" if span == 20 else f"{span} years"
+    return f"{span} years"
+
+
+def _match_model_role(roles: list[ResumeRole], company: str) -> ResumeRole | None:
+    key = _norm_token(company)
+    if not key:
+        return None
+    return next((role for role in roles if _mentions(role.company, key)), None)
+
+
+def _seed_has_org_facts(seed: dict) -> bool:
+    return bool(
+        seed.get("experience")
+        or seed.get("education")
+        or seed.get("licenses")
+        or seed.get("certifications")
+    )
+
+
+def apply_provided_orgs(
+    s: SuggestedBenchmark,
+    seed: dict | None,
+    last_company: str,
+) -> SuggestedBenchmark:
+    """Lock employers / schools / credentials to the seed; keep model skills, bullets, projects."""
+    data = normalize_profile_seed(seed)
+    model_roles = list(s.sample.experience)
+    seed_roles = list(data.get("experience") or [])
+    company = (last_company or s.last_company or "").strip()
+
+    # Ensure last company is represented even when the seed only named earlier employers.
+    if company and not any(_mentions(r.get("company", ""), _norm_token(company)) for r in seed_roles):
+        seed_roles.insert(0, {"company": company})
+    elif company:
+        # Move matching seed role to front and normalize the company spelling.
+        match_at = next(
+            (i for i, role in enumerate(seed_roles) if _mentions(role.get("company", ""), _norm_token(company))),
+            None,
+        )
+        if match_at is not None:
+            seed_roles[match_at] = {**seed_roles[match_at], "company": company}
+            if match_at != 0:
+                seed_roles.insert(0, seed_roles.pop(match_at))
+
+    if not seed_roles and company:
+        seed_roles = [{"company": company}]
+
+    rebuilt: list[ResumeRole] = []
+    for role in seed_roles:
+        company_name = _clean_text(role.get("company")) or company
+        model = _match_model_role(model_roles, company_name)
+        bullets = list(model.bullets) if model and model.bullets else list(role.get("bullets") or [])
+        rebuilt.append(
+            ResumeRole(
+                company=company_name,
+                title=_clean_text(role.get("title")) or (model.title if model else "") or "Role",
+                start=_clean_text(role.get("start")) or (model.start if model else ""),
+                end=_clean_text(role.get("end")) or (model.end if model else ""),
+                location=_clean_text(role.get("location")) or (model.location if model else ""),
+                bullets=bullets or ["Contribution aligned to the target role."],
+            )
+        )
+    if rebuilt:
+        s.sample.experience = rebuilt
+
+    edu_entries: list[ResumeEducation] = []
+    for edu in data.get("education") or []:
+        school = _clean_text(edu.get("school"))
+        if not school:
+            continue
+        edu_entries.append(
+            ResumeEducation(
+                school=school,
+                degree=_clean_text(edu.get("degree")),
+                field=_clean_text(edu.get("field")),
+                dates=_seed_dates(edu.get("start"), edu.get("end")),
+                details=list(edu.get("details") or []),
+            )
+        )
+    s.sample.education = edu_entries
+
+    licenses = [_credential_line(item) for item in (data.get("licenses") or []) if _credential_line(item)]
+    certifications = [
+        _credential_line(item) for item in (data.get("certifications") or []) if _credential_line(item)
+    ]
+    s.sample.licenses = licenses
+    s.sample.certifications = certifications
+    s.sample.licenses_certs = []
+
+    if not s.sample.projects:
+        seed_projects = data.get("projects") or []
+        s.sample.projects = [
+            ResumeProject(
+                name=_clean_text(p.get("name")) or "Project",
+                description=_clean_text(p.get("description")) or "Illustrative project for the target domain.",
+            )
+            for p in seed_projects
+            if _clean_text(p.get("name")) or _clean_text(p.get("description"))
+        ]
+    if not s.sample.projects:
+        s.sample.projects = [
+            ResumeProject(
+                name="Domain delivery",
+                description="Illustrative project proving the target work.",
+            )
+        ]
+
+    if not s.sample.skills and not s.sample.skill_groups and data.get("skills"):
+        s.sample.skills = list(data["skills"])
+
+    # Honest tenure marker from the provided timeline (do not keep a padded 20+ invent).
+    benches = dict(s.sample.benchmarks or {})
+    benches["total_relevant_experience"] = _timeline_years_label(data if data.get("experience") else {
+        "experience": [{"company": r.company, "start": r.start, "end": r.end} for r in s.sample.experience],
+        "education": [
+            {"start": "", "end": edu.dates} for edu in s.sample.education
+        ],
+    })
+    s.sample.benchmarks = benches
     return s
 
 
@@ -625,33 +788,44 @@ def suggest_sample(
     notes: str = "",
     jd: str = "",
     profile_seed: dict | None = None,
+    seed_mode: str = "last_company",
 ) -> tuple[SuggestedBenchmark, dict[str, str]]:
     """Build a teaching profile and resume for a virtual candidate.
 
-    The name is the virtual candidate. The last company is their latest real employer in the model,
-    and the rest of the career uses other real US high-ranking companies in that industry.
-    Optional profile_seed facts (LinkedIn-style) steer sections the coach already knows.
+    The name is the virtual candidate. The last company is their latest real employer in the model.
+    seed_mode=last_company invents peer employers/schools/creds (original teaching bar).
+    seed_mode=provided locks employers/schools/creds to profile_seed; skills/bullets/projects may be generated.
     """
     name, company = (name or "").strip(), (company or "").strip()
     if not name or not company:
         raise ValueError("candidate name and last company are required")
+    mode = normalize_seed_mode(seed_mode)
     jd = (jd or "").strip()
-    seed = normalize_profile_seed(profile_seed)
+    seed = normalize_profile_seed(profile_seed) if mode == "provided" else {}
+    if mode == "provided" and not _seed_has_org_facts(seed):
+        raise ValueError(
+            "seed_mode=provided requires profile_seed with experience, education, licenses, or certifications"
+        )
     md = market_data()
+    # Dense teaching JSON often exceeds ChatGPT-bridge 5-minute waits; use the API when keyed.
+    api = "openai" if config.openai_api_key() else None
     suggestion = ask_json("sample_suggest", SuggestedBenchmark, {
         "name": name,
         "company": company,
         "title": (title or "").strip(),
         "notes": (notes or "").strip(),
         "jd": jd,
+        "seed_mode": mode,
         "profile_seed": seed,
-        "profile_seed_text": format_profile_seed_for_prompt(seed),
+        "profile_seed_text": format_profile_seed_for_prompt(seed) if seed else "",
         "archetypes": archetypes(),
         "n_jobs": md["n_jobs"],
         "top_keywords": md["top_keywords"],
-    })
+    }, provider=api)
     suggestion.target_kind = "job_description" if jd else "company_domain"
     suggestion = guard_suggestion(suggestion, name, company)
+    if mode == "provided":
+        suggestion = apply_provided_orgs(suggestion, seed, company)
     suggestion.contact = contact_line_from_seed(seed) or suggestion.contact
     return suggestion, write_suggestion_artifacts(suggestion)
 

@@ -150,6 +150,18 @@ a {
   margin-top: 8px;
 }
 
+.check-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin: 12px 0 4px;
+  font-size: 13px;
+  line-height: 1.35;
+  cursor: pointer;
+}
+.check-row input {
+  margin-top: 2px;
+}
 .hint.tight {
   margin: 0 0 8px;
 }

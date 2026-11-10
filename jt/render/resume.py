@@ -116,7 +116,7 @@ def render_docx(r: ResumeContent, path: Path) -> None:
                 loc.paragraph_format.space_after = Pt(0)
             _bullets(doc, e.bullets)
     if r.projects:
-        _heading(doc, "Selected Projects")
+        _heading(doc, "Representative projects")
         for pr in r.projects:
             p = doc.add_paragraph()
             p.paragraph_format.space_after = Pt(1)

@@ -56,7 +56,7 @@ Build the model so a coach can teach from it:
 {% endif %}
 - `signals`: 6-10 concrete markers a recruiter would stop on{% if seed_mode != "provided" %} (include the 20+ year depth and the credential stack){% endif %}. Coach-facing only.
 - `benchmarks`: quantified coach markers (dict); must include `total_relevant_experience`. These stay in the teaching notes — they are never printed as resume lines or snake_case bullets.
-- Resume content the learner sees should read like a top enterprise CV: Professional Summary, Skills (categorized), Professional Experience, Selected Projects, Education, Licenses, Certifications. Do not invent an "Additional" dump of metadata.
+- Resume content the learner sees should read like a top enterprise CV: Professional Summary, Skills (categorized), Professional Experience, Representative projects, Education, Licenses, Certifications. Do not invent an "Additional" dump of metadata.
 - `teaching_notes`: at least one note each for headline, experience, education, licenses, certifications, and projects. Each note says what information is necessary, why this real option is the strong one, and how a coach should explain it.
 
 Avoid clichés ("passionate", "results-driven"). Set `sample.label` to "TEACHING EXAMPLE - virtual candidate, model career at real organisations" and `sample.archetype` to the role name.

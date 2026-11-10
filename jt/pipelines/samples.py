@@ -18,7 +18,7 @@ from ..llm.prefs import (
     preferred_resume_template,
 )
 from ..models import Job, JobAnalysis
-from ..render.resume import render_docx, render_html
+from ..render.resume import render_docx, render_html, render_pdf
 from ..schemas import (
     Basics,
     Credential,
@@ -842,20 +842,20 @@ def write_suggestion_artifacts(suggestion: SuggestedBenchmark) -> dict[str, str]
     profile_md = out / "profile.md"
     profile_md.write_text(suggestion_to_markdown(suggestion), encoding="utf-8")
     resume = sample_to_resume(suggestion)
-    docx_path, html_path = out / "resume.docx", out / "resume.html"
+    docx_path, html_path, pdf_path = out / "resume.docx", out / "resume.html", out / "resume.pdf"
     template_id = preferred_resume_template()
     accent_id = preferred_resume_accent() or None
     render_docx(resume, docx_path)
-    html_path.write_text(
-        render_html(resume, template_id=template_id, accent_id=accent_id),
-        encoding="utf-8",
-    )
+    html = render_html(resume, template_id=template_id, accent_id=accent_id)
+    html_path.write_text(html, encoding="utf-8")
+    pdf_ok = render_pdf(html, pdf_path)
     return {
         "dir": str(out),
         "json": str(out / "suggestion.json"),
         "profile": str(profile_md),
         "docx": str(docx_path),
         "html": str(html_path),
+        "pdf": str(pdf_path) if pdf_ok else "",
         "template_id": template_id,
     }
 

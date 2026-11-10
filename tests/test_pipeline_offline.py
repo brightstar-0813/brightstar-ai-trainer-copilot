@@ -171,6 +171,14 @@ def env(tmp_path, monkeypatch):
         return dict(prefs)
 
     monkeypatch.setattr("jt.llm.prefs.save_prefs", _save_prefs)
+
+    def _fake_pdf(html: str, path: Path) -> bool:
+        Path(path).parent.mkdir(parents=True, exist_ok=True)
+        Path(path).write_bytes(b"%PDF-1.4\nfake\n")
+        return True
+
+    monkeypatch.setattr("jt.render.resume.render_pdf", _fake_pdf)
+    monkeypatch.setattr("jt.pipelines.samples.render_pdf", _fake_pdf)
     FakeBC.calls.clear()
     FakeBC.first_job_analyze_garbage = False
     st = store([RawJob(source="x", external_id="1", title="AI Tutor, Math", company="Acme", pay="$45/hour",
@@ -257,6 +265,7 @@ def test_suggest_sample_teaches_with_real_company_and_name(env):
     profile = Path(paths["profile"]).read_text(encoding="utf-8")
     assert "How to teach it" in profile and "Georgia Institute of Technology" in profile
     assert Path(paths["docx"]).stat().st_size > 1000
+    assert paths["pdf"] and Path(paths["pdf"]).exists()
     html = Path(paths["html"]).read_text(encoding="utf-8")
     assert "Jane Example" in html or "Virtual candidate" in html
     assert "Fanuc" in html

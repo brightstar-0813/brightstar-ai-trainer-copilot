@@ -42,7 +42,7 @@ function projectsSection(projects) {
     })
     .filter(Boolean);
   if (!items.length) return "";
-  return `<section class="jt-projects"><h2>Selected Projects</h2>\n${items.join("\n")}\n</section>`;
+  return `<section class="jt-projects"><h2>Representative projects</h2>\n${items.join("\n")}\n</section>`;
 }
 
 function injectProjects(html, projects) {

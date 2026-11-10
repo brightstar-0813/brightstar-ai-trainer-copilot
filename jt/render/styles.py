@@ -3,7 +3,7 @@
 Templates change fonts, colors, and header chrome only. Section order and labels
 stay the same for every style:
   Professional Summary → Core Competencies → Professional Experience →
-  Selected Projects → Education → Licenses → Certifications → Languages & Awards
+  Representative projects → Education → Licenses → Certifications → Languages & Awards
 """
 from __future__ import annotations
 
@@ -380,7 +380,7 @@ def _section_body(r: ResumeContent) -> str:
             parts.append("</article>")
         parts.append("</section>")
     if r.projects:
-        parts.append("<section><h2>Selected Projects</h2>")
+        parts.append("<section><h2>Representative projects</h2>")
         for p in r.projects:
             link = f" ({escape(p.link)})" if p.link else ""
             parts.append(

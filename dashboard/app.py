@@ -53,7 +53,7 @@ from jt.pipelines import tailor as tl  # noqa: E402
 # Streamlit keeps jt.* in sys.modules across reruns; reload so dashboard picks up
 # newly added pipeline helpers (e.g. parse_profile_dump) without a full restart.
 importlib.reload(sm)
-from jt.render.resume import render_docx, render_html  # noqa: E402
+from jt.render.resume import render_docx, render_html, render_pdf  # noqa: E402
 from jt.render.styles import get_style, list_accents, list_styles, resolve_accent_color  # noqa: E402
 from jt.schemas import (  # noqa: E402
     MasterProfile,
@@ -949,9 +949,12 @@ def _suggestion_label(folder: Path) -> str:
 def _download(folder: Path, filename: str, label: str) -> None:
     path = folder / filename
     if path.exists():
-        mime = "text/markdown" if path.suffix == ".md" else "text/html" if path.suffix == ".html" else (
-            "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-        )
+        mime = {
+            ".md": "text/markdown",
+            ".html": "text/html",
+            ".pdf": "application/pdf",
+            ".docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        }.get(path.suffix.lower(), "application/octet-stream")
         st.download_button(
             label,
             path.read_bytes(),
@@ -960,6 +963,20 @@ def _download(folder: Path, filename: str, label: str) -> None:
             key=f"dl-{folder.name}-{filename}",
             icon=":material/download:",
         )
+
+
+def _ensure_suggestion_pdf(folder: Path) -> Path | None:
+    """Build resume.pdf from the styled HTML when missing. Returns the path if available."""
+    pdf_path = folder / "resume.pdf"
+    if pdf_path.exists() and pdf_path.stat().st_size > 0:
+        return pdf_path
+    html_path = folder / "resume.html"
+    if not html_path.exists():
+        return None
+    html = html_path.read_text(encoding="utf-8")
+    if render_pdf(html, pdf_path):
+        return pdf_path
+    return None
 
 
 @st.fragment(run_every=3)
@@ -1039,8 +1056,10 @@ def teaching_workspace() -> None:
         st.subheader(folder.name)
 
     html, md = folder / "resume.html", folder / "profile.md"
+    _ensure_suggestion_pdf(folder)
     with st.container(horizontal=True):
-        _download(folder, "resume.docx", "Download resume")
+        _download(folder, "resume.docx", "Download DOCX")
+        _download(folder, "resume.pdf", "Download PDF")
         _download(folder, "resume.html", "Download HTML")
         _download(folder, "profile.md", "Download notes")
         if st.button(
@@ -1151,14 +1170,17 @@ def teaching_workspace() -> None:
             save_prefs(resume_template=preview_tid, resume_accent=preview_accent)
             resume = sm.sample_to_resume(suggestion)
             render_docx(resume, folder / "resume.docx")
-            (folder / "resume.html").write_text(
-                render_html(
-                    resume,
-                    template_id=preview_tid,
-                    accent_id=preview_accent,
-                ),
-                encoding="utf-8",
+            styled = render_html(
+                resume,
+                template_id=preview_tid,
+                accent_id=preview_accent,
             )
+            (folder / "resume.html").write_text(styled, encoding="utf-8")
+            if not render_pdf(styled, folder / "resume.pdf"):
+                st.warning(
+                    "DOCX and HTML saved; PDF needs Chromium/Chrome for Playwright.",
+                    icon=":material/warning:",
+                )
             st.toast(f"Saved {labels_map.get(preview_tid, preview_tid)} · {preview_accent}")
             st.rerun()
         preset_ids = [a["id"] for a in list_accents()]

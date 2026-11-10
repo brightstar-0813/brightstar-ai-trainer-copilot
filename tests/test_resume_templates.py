@@ -58,7 +58,7 @@ def test_styled_html_keeps_teaching_structure():
     assert "<h2>Skills</h2>" in html
     assert "skill-cat" in html
     assert "Professional Experience" in html
-    assert "Selected Projects" in html
+    assert "Representative projects" in html
     assert "Education" in html
     assert "Certifications" in html
     assert ">Profile<" not in html
@@ -78,7 +78,7 @@ def test_style_swap_does_not_change_sections():
         "Professional Summary",
         "Skills",
         "Professional Experience",
-        "Selected Projects",
+        "Representative projects",
         "Education",
         "Certifications",
     ):

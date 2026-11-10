@@ -36,7 +36,7 @@ const CSS = `
     header.top {
       margin: 0 0 8px;
       padding: 0 0 6px;
-      border-bottom: 2.5px solid #111;
+      border-bottom: 2.5px solid #0a2540;
     }
 
     h1 {
@@ -46,15 +46,17 @@ const CSS = `
       letter-spacing: 0.4px;
       text-transform: uppercase;
       line-height: 1.1;
+      color: #111;
     }
 
     .headline {
       margin: 2px 0 4px;
       font-size: 10.5pt;
       font-weight: 700;
+      color: #111;
     }
 
-    .contact { margin: 0; font-size: 9.5pt; }
+    .contact { margin: 0; font-size: 9.5pt; color: #111; }
 
     a, a:visited { color: #111; text-decoration: underline; }
 
@@ -62,14 +64,13 @@ const CSS = `
 
     h2 {
       margin: 0 0 4px;
-      padding: 2px 0;
+      padding: 3px 8px;
       font-size: 10.5pt;
       font-weight: 700;
       letter-spacing: 0.8px;
       text-transform: uppercase;
-      background: #111;
+      background: #0a2540;
       color: #fff;
-      padding-left: 6px;
     }
 
     p { margin: 0 0 4px; }
@@ -90,7 +91,7 @@ const CSS = `
     }
 
     .skills-table th, .skills-table td {
-      border: 1px solid #111;
+      border: 1px solid #0a2540;
       padding: 3px 6px;
       vertical-align: top;
       text-align: left;

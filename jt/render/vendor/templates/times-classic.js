@@ -36,7 +36,7 @@ const CSS = `
 
     header.top {
       text-align: center;
-      margin-bottom: 4px;
+      margin-bottom: 2px;
       padding-bottom: 2px;
     }
 

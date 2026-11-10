@@ -19,10 +19,10 @@ _FALLBACK_TEMPLATES = [
     {"id": "sv-senior", "label": "3 · Silicon Valley", "description": "Arial · experience-first · Big Tech."},
     {"id": "nyc-finance", "label": "4 · NYC Finance", "description": "Navy header · banks and fintech."},
     {"id": "harvard-rule", "label": "5 · Harvard Rule", "description": "Garamond · centered name · double rule."},
-    {"id": "skills-first", "label": "6 · Skills-First Technical", "description": "Skills table before experience."},
+    {"id": "skills-first", "label": "6 · Skills-First Technical", "description": "Arial · inverted-bar headings · skills table."},
     {"id": "modern-sans", "label": "7 · Modern US Sans", "description": "Segoe · teal accent · product/SaaS."},
     {"id": "executive-navy", "label": "8 · Executive Navy", "description": "Navy sidebar · executive layout."},
-    {"id": "orange-banner", "label": "9 · Orange Banner", "description": "Calibri · orange section bars."},
+    {"id": "orange-banner", "label": "9 · Orange Banner", "description": "Calibri · bronze section bars."},
     {"id": "date-rail", "label": "10 · Date Rail", "description": "Dates on the title line."},
 ]
 

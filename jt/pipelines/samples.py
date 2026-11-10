@@ -106,7 +106,7 @@ def sample_to_markdown(s: SampleProfile) -> str:
         out += [f"  - {d}" for d in e.details]
     out += _credential_lines(s)
     if s.projects:
-        out.append("\n## Projects")
+        out.append("\n## Representative projects")
         out += [f"- **{p.name}**: {p.description}" for p in s.projects]
     if s.skill_groups:
         out.append("\n## Skills")
@@ -355,8 +355,9 @@ def sample_to_resume(s: SuggestedBenchmark) -> ResumeContent:
     """Map a teaching sample to a print resume.
 
     Section order matches a top-tier enterprise CV: summary, categorized skills,
-    experience, projects, education, licenses, certifications. Coach-only fields
-    (`signals`, `benchmarks`) stay in the markdown profile — never as resume lines.
+    experience, representative projects, education, licenses, certifications.
+    Coach-only fields (`signals`, `benchmarks`) stay in the markdown profile —
+    never as resume lines.
     """
     from ..render.skills import flatten_skill_groups, normalize_skill_groups
 
@@ -829,14 +830,20 @@ def suggest_sample(
     return suggestion, write_suggestion_artifacts(suggestion)
 
 
-def write_suggestion_artifacts(suggestion: SuggestedBenchmark) -> dict[str, str]:
+def write_suggestion_artifacts(
+    suggestion: SuggestedBenchmark,
+    *,
+    out: Path | None = None,
+) -> dict[str, str]:
     """Persist suggestion.json, profile.md, and resume files under output/suggestions/."""
-    name = suggestion.persona_name or suggestion.for_candidate or "candidate"
-    company = suggestion.last_company or "company"
-    slug_parts = [name, company]
-    if (suggestion.target_kind or "").strip() == "job_description":
-        slug_parts.append("jd")
-    out = config.OUTPUT_DIR / "suggestions" / _slug(*slug_parts)
+    if out is None:
+        name = suggestion.persona_name or suggestion.for_candidate or "candidate"
+        company = suggestion.last_company or "company"
+        slug_parts = [name, company]
+        if (suggestion.target_kind or "").strip() == "job_description":
+            slug_parts.append("jd")
+        out = config.OUTPUT_DIR / "suggestions" / _slug(*slug_parts)
+    out = Path(out)
     out.mkdir(parents=True, exist_ok=True)
     (out / "suggestion.json").write_text(suggestion.model_dump_json(indent=2), encoding="utf-8")
     profile_md = out / "profile.md"
@@ -858,6 +865,98 @@ def write_suggestion_artifacts(suggestion: SuggestedBenchmark) -> dict[str, str]
         "pdf": str(pdf_path) if pdf_ok else "",
         "template_id": template_id,
     }
+
+
+_OLD_PROJECTS_HEADING = ("Selected Projects", "SELECTED PROJECTS", "Selected Project")
+
+
+def _rewrite_selected_projects_text(text: str) -> str:
+    """Replace legacy project-section labels without touching other content."""
+    out = text
+    for old, new in (
+        ("Selected Projects", "Representative projects"),
+        ("SELECTED PROJECTS", "REPRESENTATIVE PROJECTS"),
+        ("Selected Project", "Representative projects"),
+        ("## Projects", "## Representative projects"),
+    ):
+        out = out.replace(old, new)
+    return out
+
+
+def refresh_suggestion_resume_if_stale(folder: Path) -> bool:
+    """Rewrite teaching-model resume files when they still use 'Selected Projects'.
+
+    Prefers a full re-render from suggestion.json. If that JSON no longer validates,
+    falls back to in-place heading rewrites on HTML/Markdown (+ PDF refresh).
+
+    Returns True when artifacts were rewritten.
+    """
+    folder = Path(folder)
+    html_path = folder / "resume.html"
+    md_path = folder / "profile.md"
+    docx_path = folder / "resume.docx"
+    json_path = folder / "suggestion.json"
+    texts = []
+    if html_path.exists():
+        texts.append(html_path.read_text(encoding="utf-8"))
+    if md_path.exists():
+        texts.append(md_path.read_text(encoding="utf-8"))
+    if docx_path.exists():
+        from docx import Document
+
+        texts.extend(p.text for p in Document(str(docx_path)).paragraphs)
+    blob = "\n".join(texts)
+    stale = any(old in blob for old in _OLD_PROJECTS_HEADING) or "\n## Projects\n" in blob
+    if not stale:
+        return False
+    if json_path.exists():
+        try:
+            write_suggestion_artifacts(load_suggestion_dir(folder), out=folder)
+            return True
+        except Exception:
+            pass
+    changed = False
+    if html_path.exists():
+        html = html_path.read_text(encoding="utf-8")
+        new_html = _rewrite_selected_projects_text(html)
+        if new_html != html:
+            html_path.write_text(new_html, encoding="utf-8")
+            render_pdf(new_html, folder / "resume.pdf")
+            changed = True
+    if md_path.exists():
+        md = md_path.read_text(encoding="utf-8")
+        new_md = _rewrite_selected_projects_text(md)
+        if new_md != md:
+            md_path.write_text(new_md, encoding="utf-8")
+            changed = True
+    if docx_path.exists() and _rewrite_selected_projects_docx(docx_path):
+        changed = True
+    return changed
+
+
+def _rewrite_selected_projects_docx(path: Path) -> bool:
+    """In-place DOCX heading rewrite when full re-render is unavailable."""
+    from docx import Document
+
+    doc = Document(str(path))
+    changed = False
+    for para in doc.paragraphs:
+        if not any(old in para.text for old in _OLD_PROJECTS_HEADING):
+            continue
+        for run in para.runs:
+            new = _rewrite_selected_projects_text(run.text)
+            if new != run.text:
+                run.text = new
+                changed = True
+        # Paragraph text can span runs; rewrite whole paragraph if still stale.
+        if any(old in para.text for old in _OLD_PROJECTS_HEADING) and para.runs:
+            para.runs[0].text = _rewrite_selected_projects_text(para.text)
+            for run in para.runs[1:]:
+                run.text = ""
+            changed = True
+    if changed:
+        doc.save(str(path))
+    return changed
 
 
 def import_suggestion_json(

@@ -33,7 +33,7 @@ const CSS = `
 
     .resume { width: 100%; }
 
-    header.top { margin: 0 0 12px; }
+    header.top { margin: 0 0 4px; }
 
     h1 {
       margin: 0;
@@ -45,7 +45,7 @@ const CSS = `
     }
 
     .headline {
-      margin: 3px 0 8px;
+      margin: 3px 0 4px;
       font-size: 11pt;
       font-weight: 600;
       color: #334155;
@@ -55,11 +55,11 @@ const CSS = `
       height: 3px;
       width: 48px;
       background: #0f766e;
-      margin: 0 0 8px;
+      margin: 0 0 4px;
       border: 0;
     }
 
-    .contact { margin: 0; font-size: 9pt; color: #475569; }
+    .contact { margin: 0; font-size: 9pt; color: #0f766e; }
 
     .contact a, .contact a:visited {
       color: #0f766e;

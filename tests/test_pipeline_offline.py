@@ -12,7 +12,7 @@ from jt.collect import store
 from jt.llm import client as llm_client
 from jt.llm.client import LLMError
 from jt.models import Job
-from jt.pipelines import analyze, match, profile, samples, tailor
+from jt.pipelines import analyze, match, profile, resume_edit, samples, tailor
 from jt.schemas import (
     Gap,
     JobRequirements,
@@ -269,6 +269,10 @@ def test_suggest_sample_teaches_with_real_company_and_name(env):
     html = Path(paths["html"]).read_text(encoding="utf-8")
     assert "Jane Example" in html or "Virtual candidate" in html
     assert "Fanuc" in html
+    assert "Representative projects" in html
+    assert "Selected Projects" not in html
+    assert "Representative projects" in profile
+    assert "Selected Projects" not in profile
     assert "total_relevant_experience" not in html
     assert "Additional" not in html
     resume = samples.sample_to_resume(suggestion)
@@ -277,6 +281,17 @@ def test_suggest_sample_teaches_with_real_company_and_name(env):
     assert len(resume.skills) <= 18
     assert "years: 12" not in " ".join(resume.additional)
     assert profile_path("test").read_text(encoding="utf-8") == before
+
+    stale_dir = Path(paths["dir"])
+    (stale_dir / "resume.html").write_text(
+        html.replace("Representative projects", "Selected Projects"),
+        encoding="utf-8",
+    )
+    assert samples.refresh_suggestion_resume_if_stale(stale_dir) is True
+    refreshed = (stale_dir / "resume.html").read_text(encoding="utf-8")
+    assert "Representative projects" in refreshed
+    assert "Selected Projects" not in refreshed
+    assert samples.refresh_suggestion_resume_if_stale(stale_dir) is False
 
     missing = suggestion.model_copy(deep=True)
     missing.sample.experience[0].company = "Siemens"
@@ -561,3 +576,48 @@ def test_legacy_master_profile_migrates_to_default(env, monkeypatch):
     assert "default" in list_profiles()
     assert get_active_profile() == "default"
     assert load_profile().basics.name == "Legacy Person"
+
+
+def test_save_teaching_resume_edit_rewrites_artifacts(env):
+    from jt.render.resume import render_html
+
+    suggestion, paths = samples.suggest_sample("Jane Example", "Fanuc")
+    folder = Path(paths["dir"])
+    resume = samples.sample_to_resume(suggestion)
+    resume.summary = "Edited summary for the teaching model."
+    resume.experience[0].bullets = ["Edited bullet for Fanuc role"]
+    edited_html = render_html(resume)
+    out = resume_edit.save_teaching_resume_edit(folder, edited_html)
+    assert out["dir"] == str(folder)
+    html = Path(out["html"]).read_text(encoding="utf-8")
+    assert "Edited summary for the teaching model." in html
+    assert "Edited bullet for Fanuc role" in html
+    assert "Representative projects" in html
+    assert "Selected Projects" not in html
+    saved = samples.load_suggestion_dir(folder)
+    assert saved.sample.about == "Edited summary for the teaching model."
+    assert saved.sample.experience[0].bullets == ["Edited bullet for Fanuc role"]
+
+
+def test_save_tailored_resume_edit_appends_row(env):
+    from jt.render.resume import render_html
+
+    qs = tailor.generate_questions(1)
+    tailor.answer_question(qs[1].id, "I ranked about 500 RLHF tasks at Example University.")
+    row = tailor.tailor_job(1)
+    payload = json.loads(row.resume_json)
+    resume = ResumeContent.model_validate(payload["resume"])
+    resume.summary = "Manually edited tailored summary."
+    if resume.experience:
+        resume.experience[0].bullets = ["Manually edited tailored bullet"]
+    edited_html = render_html(resume)
+    new_row = resume_edit.save_tailored_resume_edit(1, edited_html)
+    assert new_row.id != row.id
+    assert new_row.job_id == 1
+    saved = json.loads(new_row.resume_json)["resume"]
+    assert saved["summary"] == "Manually edited tailored summary."
+    assert saved["experience"][0]["bullets"] == ["Manually edited tailored bullet"]
+    html = Path(new_row.docx_path).with_suffix(".html").read_text(encoding="utf-8")
+    assert "Manually edited tailored summary." in html
+    latest = tailor.latest_resume(1)
+    assert latest is not None and latest.id == new_row.id

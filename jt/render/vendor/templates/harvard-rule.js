@@ -35,8 +35,8 @@ const CSS = `
 
     header.top {
       text-align: center;
-      margin: 0 0 10px;
-      padding: 0 0 8px;
+      margin: 0 0 4px;
+      padding: 0 0 5px;
       border-bottom: 3px double #111;
     }
 

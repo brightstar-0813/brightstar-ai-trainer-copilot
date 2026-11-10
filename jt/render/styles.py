@@ -29,12 +29,12 @@ _BASE_CSS = """
     line-height: 1.32;
   }
   .resume { width: 100%; background: #fff; }
-  .body { padding: var(--body-pad, 10mm 14mm 14mm); }
+  .body { padding: var(--body-pad, 2mm 14mm 12mm); }
   header.top, header.banner {
-    padding: var(--header-pad, 10mm 14mm 8mm);
+    padding: var(--header-pad, 8mm 14mm 2mm);
   }
   header.top {
-    margin-bottom: 1mm;
+    margin-bottom: 0;
     border-bottom: none;
   }
   header.banner {
@@ -66,7 +66,7 @@ _BASE_CSS = """
   .contact a { color: inherit; }
   section { margin: 0 0 8px; }
   h2 {
-    margin: 10px 0 4px;
+    margin: 8px 0 3px;
     padding: 0 0 2px;
     font-size: var(--h2-size, 10.5pt);
     font-weight: 700;
@@ -75,6 +75,7 @@ _BASE_CSS = """
     color: var(--accent, #1f4e79);
     border-bottom: var(--h2-rule, 2px solid var(--accent, #1f4e79));
   }
+  .body > section:first-child h2 { margin-top: 0; }
   .body p,
   .body li,
   .skill-row,
@@ -187,8 +188,8 @@ STYLES: list[ResumeStyle] = [
             "--banner-headline": "#d4b56a",
             "--h2-rule": "2px solid #d4b56a",
             "--size": "10.2pt",
-            "--header-pad": "11mm 14mm 9mm",
-            "--body-pad": "8mm 14mm 14mm",
+            "--header-pad": "10mm 14mm 3mm",
+            "--body-pad": "3mm 14mm 12mm",
         },
     ),
     ResumeStyle(
@@ -210,14 +211,14 @@ STYLES: list[ResumeStyle] = [
     ResumeStyle(
         "skills-first",
         "6 · Skills-First Technical",
-        "Arial · strong competency emphasis.",
+        "Arial · inverted-bar headings · skills table.",
         "top",
         {
             "--font": "Arial, Helvetica, sans-serif",
-            "--accent": "#0f172a",
-            "--name-color": "#0f172a",
-            "--header-rule": "4px solid #0f172a",
-            "--h2-rule": "3px solid #0f172a",
+            "--accent": "#0A2540",
+            "--name-color": "#111111",
+            "--header-rule": "2.5px solid #0A2540",
+            "--h2-rule": "none",
             "--size": "10pt",
         },
     ),
@@ -229,16 +230,17 @@ STYLES: list[ResumeStyle] = [
         {
             "--font": '"Segoe UI", Calibri, Arial, sans-serif',
             "--accent": "#0d7377",
-            "--name-color": "#0d7377",
-            "--header-rule": "3px solid #0d7377",
+            "--name-color": "#0f172a",
+            "--header-rule": "none",
             "--h2-rule": "none",
+            "--contact-color": "#0d7377",
             "--size": "10.2pt",
         },
     ),
     ResumeStyle(
         "executive-navy",
         "8 · Executive Navy",
-        "Navy + gold accents · executive header (structure unchanged).",
+        "Navy + gold accents · executive header.",
         "banner",
         {
             "--font": 'Calibri, "Segoe UI", Arial, Helvetica, sans-serif',
@@ -253,14 +255,14 @@ STYLES: list[ResumeStyle] = [
     ResumeStyle(
         "orange-banner",
         "9 · Orange Banner",
-        "Calibri · orange section rules.",
+        "Calibri · bronze section banners.",
         "top",
         {
             "--font": "Calibri, Arial, Helvetica, sans-serif",
-            "--accent": "#c45c26",
-            "--name-color": "#3f3f46",
-            "--header-rule": "2px solid #c45c26",
-            "--h2-rule": "2px solid #c45c26",
+            "--accent": "#8A5A2B",
+            "--name-color": "#7b8490",
+            "--header-rule": "none",
+            "--h2-rule": "none",
             "--size": "10.5pt",
         },
     ),
@@ -279,6 +281,11 @@ STYLES: list[ResumeStyle] = [
         },
     ),
 ]
+
+# Saved prefs from older builds still resolve.
+_STYLE_ID_ALIASES = {
+    "brief-grid": "skills-first",
+}
 
 _STYLES_BY_ID = {s.id: s for s in STYLES}
 
@@ -327,6 +334,7 @@ def list_styles() -> dict[str, Any]:
 
 def resolve_style_id(style_id: str | None) -> str:
     tid = (style_id or "").strip() or DEFAULT_STYLE_ID
+    tid = _STYLE_ID_ALIASES.get(tid, tid)
     return tid if tid in _STYLES_BY_ID else DEFAULT_STYLE_ID
 
 
@@ -338,12 +346,28 @@ def _contact_html(r: ResumeContent) -> str:
     return escape(r.contact or "")
 
 
-def _skills_html(r: ResumeContent) -> str:
+def _skills_html(r: ResumeContent, *, as_table: bool = False) -> str:
     from .skills import normalize_skill_groups
 
     groups = normalize_skill_groups(list(r.skill_groups or []), flat=list(r.skills or []))
     if not groups:
         return ""
+    if as_table:
+        rows = []
+        for g in groups:
+            items = ", ".join(escape(i) for i in g.items)
+            rows.append(
+                "<tr>"
+                f'<td class="skill-cat">{escape(g.category)}</td>'
+                f'<td class="skill-items">{items}</td>'
+                "</tr>"
+            )
+        return (
+            '<table class="skills-table" role="table">'
+            "<thead><tr><th scope=\"col\">Category</th>"
+            "<th scope=\"col\">Technologies / Skills</th></tr></thead>"
+            f"<tbody>\n{chr(10).join(rows)}\n</tbody></table>"
+        )
     rows = []
     for g in groups:
         items = " · ".join(escape(i) for i in g.items)
@@ -354,17 +378,28 @@ def _skills_html(r: ResumeContent) -> str:
     return f'<div class="skills-stack">\n{chr(10).join(rows)}\n</div>'
 
 
-def _section_body(r: ResumeContent) -> str:
+def _h2(label: str, *, style_id: str) -> str:
+    """Section title markup — orange-banner uses bar vs plain chrome."""
+    if style_id == "orange-banner":
+        if label in {"Professional Experience", "Education"}:
+            return f'<h2 class="bar"><span>{escape(label)}</span></h2>'
+        return f'<h2 class="plain">{escape(label)}</h2>'
+    return f"<h2>{escape(label)}</h2>"
+
+
+def _section_body(r: ResumeContent, *, style_id: str) -> str:
     parts: list[str] = []
+    table_skills = style_id in {"skills-first", "orange-banner"}
     if r.summary:
         parts.append(
-            f"<section><h2>Professional Summary</h2><p>{escape(r.summary)}</p></section>"
+            f"<section>{_h2('Professional Summary', style_id=style_id)}"
+            f"<p>{escape(r.summary)}</p></section>"
         )
-    skill_block = _skills_html(r)
+    skill_block = _skills_html(r, as_table=table_skills)
     if skill_block:
-        parts.append(f"<section><h2>Skills</h2>{skill_block}</section>")
+        parts.append(f"<section>{_h2('Skills', style_id=style_id)}{skill_block}</section>")
     if r.experience:
-        parts.append("<section><h2>Professional Experience</h2>")
+        parts.append(f"<section>{_h2('Professional Experience', style_id=style_id)}")
         for e in r.experience:
             dates = f"{e.start} - {e.end}" if e.end else e.start
             parts.append(
@@ -380,7 +415,7 @@ def _section_body(r: ResumeContent) -> str:
             parts.append("</article>")
         parts.append("</section>")
     if r.projects:
-        parts.append("<section><h2>Representative projects</h2>")
+        parts.append(f"<section>{_h2('Representative projects', style_id=style_id)}")
         for p in r.projects:
             link = f" ({escape(p.link)})" if p.link else ""
             parts.append(
@@ -388,7 +423,7 @@ def _section_body(r: ResumeContent) -> str:
             )
         parts.append("</section>")
     if r.education:
-        parts.append("<section><h2>Education</h2>")
+        parts.append(f"<section>{_h2('Education', style_id=style_id)}")
         for e in r.education:
             label = e.degree + (f", {e.field}" if e.field else "")
             parts.append(
@@ -400,19 +435,19 @@ def _section_body(r: ResumeContent) -> str:
         parts.append("</section>")
     if r.licenses:
         parts.append(
-            "<section><h2>Licenses</h2><ul>"
+            f"<section>{_h2('Licenses', style_id=style_id)}<ul>"
             + "".join(f"<li>{escape(c)}</li>" for c in r.licenses)
             + "</ul></section>"
         )
     if r.certifications:
         parts.append(
-            "<section><h2>Certifications</h2><ul>"
+            f"<section>{_h2('Certifications', style_id=style_id)}<ul>"
             + "".join(f"<li>{escape(c)}</li>" for c in r.certifications)
             + "</ul></section>"
         )
     if r.additional:
         parts.append(
-            "<section><h2>Languages &amp; Awards</h2><ul>"
+            f"<section>{_h2('Languages & Awards', style_id=style_id)}<ul>"
             + "".join(f"<li>{escape(a)}</li>" for a in r.additional)
             + "</ul></section>"
         )
@@ -426,12 +461,120 @@ def _vars_css(style: ResumeStyle, accent_id: str | None) -> str:
         vals["--accent"] = accent
         if style.chrome == "banner":
             vals["--banner-bg"] = accent
-        else:
+        elif style.id == "skills-first":
+            vals["--header-rule"] = f"2.5px solid {accent}"
+        elif style.id == "modern-sans":
+            vals["--contact-color"] = accent
+        elif style.id == "orange-banner":
+            pass  # keep gray name; accent only tints section chrome
+        elif style.id != "date-rail":
             vals["--name-color"] = accent
             vals["--header-rule"] = f"3px solid {accent}"
             vals["--h2-rule"] = f"2px solid {accent}"
     lines = [f"  {k}: {v};" for k, v in vals.items()]
     return ":root {\n" + "\n".join(lines) + "\n}\n"
+
+
+_STYLE_CHROME_CSS = {
+    "skills-first": """
+  header.top { border-bottom: var(--header-rule, 2.5px solid var(--accent)); padding-bottom: 4px; }
+  h1 { text-transform: uppercase; letter-spacing: 0.4px; color: #111; }
+  h2 {
+    background: var(--accent);
+    color: #fff;
+    border-bottom: none;
+    padding: 3px 8px;
+    margin: 8px 0 4px;
+  }
+  .skills-table {
+    width: 100%;
+    border-collapse: collapse;
+    table-layout: fixed;
+    font-size: 0.95em;
+  }
+  .skills-table th, .skills-table td {
+    border: 1px solid var(--accent);
+    padding: 3px 6px;
+    vertical-align: top;
+    text-align: left;
+  }
+  .skills-table th { background: #f2f2f2; font-weight: 700; }
+  .skills-table .skill-cat { width: 32%; font-weight: 700; background: #f4f4f4; color: #111; }
+""",
+    "modern-sans": """
+  header.top { border-bottom: none; }
+  h1 { color: #0f172a; letter-spacing: -0.5px; }
+  .contact { color: var(--contact-color, var(--accent)); }
+  .contact a { color: inherit; }
+  .body section {
+    padding-left: 10px;
+    border-left: 3px solid var(--accent);
+  }
+  h2 {
+    border-bottom: none;
+    color: var(--accent);
+    letter-spacing: 1.5px;
+  }
+  .skill-cat { color: var(--accent); }
+""",
+    "orange-banner": """
+  header.top { border-bottom: none; }
+  h1 {
+    text-transform: uppercase;
+    letter-spacing: 1.4px;
+    color: var(--name-color, #7b8490);
+    font-weight: 600;
+  }
+  h2.plain {
+    margin: 10px 0 4px;
+    padding: 0;
+    border-bottom: none;
+    color: var(--accent);
+    letter-spacing: 0.6px;
+  }
+  h2.bar {
+    display: flex;
+    align-items: center;
+    margin: 12px 0 8px;
+    padding: 0;
+    border-bottom: none;
+    color: #fff;
+    letter-spacing: 0.8px;
+  }
+  h2.bar span {
+    background: var(--accent);
+    padding: 3px 12px 3px 8px;
+  }
+  h2.bar::after {
+    content: "";
+    flex: 1;
+    height: 2px;
+    background: var(--accent);
+  }
+  .skills-table {
+    width: 100%;
+    border-collapse: collapse;
+    table-layout: fixed;
+    margin: 2px 0 0;
+    font-size: 0.98em;
+  }
+  .skills-table th, .skills-table td {
+    padding: 2px 8px 2px 0;
+    vertical-align: top;
+    text-align: left;
+    border-bottom: 1px solid #e8d5c4;
+  }
+  .skills-table th {
+    font-size: 8.5pt;
+    font-weight: 700;
+    letter-spacing: 0.4px;
+    text-transform: uppercase;
+    color: var(--accent);
+    border-bottom: 1.5px solid var(--accent);
+  }
+  .skills-table .skill-cat { width: 28%; font-weight: 700; color: #333; }
+""",
+}
 
 
 def render_styled_html(
@@ -451,13 +594,12 @@ def render_styled_html(
   {f'<p class="headline">{headline}</p>' if headline else ""}
   {f'<p class="contact">{contact}</p>' if contact else ""}
 </header>"""
-    body = _section_body(r)
+    body = _section_body(r, style_id=style.id)
     css = _vars_css(style, accent_id) + _BASE_CSS
     # harvard centered name
     if style.id == "harvard-rule":
         css += "\n  header.top { text-align: center; }\n  header.top .contact { text-align: center; }\n"
-    if style.id == "modern-sans":
-        css += "\n  h2 { border-left: 4px solid var(--accent); padding-left: 8px; border-bottom: none; }\n"
+    css += _STYLE_CHROME_CSS.get(style.id, "")
     return f"""<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><title>{name} - Resume</title>
 <style>

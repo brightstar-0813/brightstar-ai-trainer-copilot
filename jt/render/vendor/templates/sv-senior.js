@@ -34,7 +34,7 @@ const CSS = `
     .resume { width: 100%; }
 
     header.top {
-      margin: 0 0 8px;
+      margin: 0 0 4px;
       text-align: center;
     }
 
@@ -67,7 +67,7 @@ const CSS = `
     section { margin: 0 0 7px; }
 
     h2 {
-      margin: 8px 0 3px;
+      margin: 6px 0 3px;
       padding: 0;
       font-size: 10pt;
       font-weight: 700;
@@ -76,6 +76,7 @@ const CSS = `
       color: #111;
       border: 0;
     }
+    section:first-of-type h2 { margin-top: 0; }
 
     p { margin: 0 0 3px; }
 

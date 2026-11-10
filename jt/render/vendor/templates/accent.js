@@ -24,6 +24,7 @@ export const TEMPLATE_ACCENTS = [
 const TEMPLATE_DEFAULT_ACCENT = {
   "ats-modern": "blue",
   "nyc-finance": "navy",
+  "skills-first": "navy",
   "executive-navy": "navy",
   "modern-sans": "teal",
   "date-rail": "slate",
@@ -60,12 +61,14 @@ export function accentOverrideCss(templateId, accentId) {
       header.top, h2 { border-bottom-color: ${hex} !important; }`,
     "modern-sans": `
       .accent { background: ${hex} !important; }
-      h2, .skill-inline .skill-cat, .contact a, .contact a:visited { color: ${hex} !important; }
-      h2 { border-left-color: ${hex} !important; }`,
+      .contact, h2, .skill-inline .skill-cat, .contact a, .contact a:visited { color: ${hex} !important; }
+      section { border-left-color: ${hex} !important; }`,
     "orange-banner": `
-      .contact, .contact a, .contact a:visited, h2.plain, .skills-table th { color: ${hex} !important; }
+      .contact .tag, h2.plain, .skills-table th { color: ${hex} !important; }
+      .contact a, .contact a:visited { color: #333 !important; }
       h2.bar span, h2.bar::after { background: ${hex} !important; }
-      .skills-table th { border-bottom-color: ${hex} !important; }`,
+      .skills-table th { border-bottom-color: ${hex} !important; }
+      .skills-table th, .skills-table td { border-bottom-color: ${hex}33 !important; }`,
     "nyc-finance": `
       .banner { background: ${hex} !important; }
       h2, .skills-table .skill-cat { color: ${hex} !important; }`,
@@ -78,7 +81,8 @@ export function accentOverrideCss(templateId, accentId) {
       table, th, td { border-color: ${hex} !important; }`,
     "skills-first": `
       header.top { border-bottom-color: ${hex} !important; }
-      h2 { background: ${hex} !important; }`,
+      h2 { background: ${hex} !important; }
+      .skills-table th, .skills-table td { border-color: ${hex} !important; }`,
     "harvard-rule": `
       header.top { border-bottom-color: ${hex} !important; }
       h1, h2 { color: ${hex} !important; }`,

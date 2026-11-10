@@ -30,8 +30,8 @@ const CSS = `
     .resume { width: 100%; }
 
     header.top {
-      margin: 0 0 8px;
-      padding-bottom: 6px;
+      margin: 0 0 4px;
+      padding-bottom: 4px;
       border-bottom: 3px solid #1f4e79;
     }
 
@@ -70,6 +70,7 @@ const CSS = `
       padding-bottom: 2px;
       border-bottom: 2.5px solid #1f4e79;
     }
+    section:first-of-type h2 { margin-top: 0; }
 
     p { margin: 0 0 4px; }
 

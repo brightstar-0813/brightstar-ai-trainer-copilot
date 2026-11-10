@@ -4,6 +4,7 @@ Long LLM tasks are launched as background `jt` subprocesses so the page never bl
 """
 from __future__ import annotations
 
+import html
 import importlib
 import json
 import os
@@ -22,7 +23,9 @@ import yaml
 from sqlmodel import select
 
 ROOT = Path(__file__).resolve().parent.parent
+DASHBOARD_DIR = Path(__file__).resolve().parent
 sys.path.insert(0, str(ROOT))
+sys.path.insert(0, str(DASHBOARD_DIR))
 
 from jt import config, db  # noqa: E402
 from jt.llm.browser_session import prepare_browser  # noqa: E402
@@ -47,19 +50,24 @@ from jt.llm.prefs import (  # noqa: E402
 from jt.models import Application, GapQuestion, Job, JobAnalysis, LLMCall, TailoredResume, utcnow  # noqa: E402
 from jt.pipelines import analyze as an  # noqa: E402
 from jt.pipelines import profile as pf  # noqa: E402
+from jt.pipelines import resume_edit as re_edit  # noqa: E402
 from jt.pipelines import samples as sm  # noqa: E402
 from jt.pipelines import tailor as tl  # noqa: E402
 
 # Streamlit keeps jt.* in sys.modules across reruns; reload so dashboard picks up
 # newly added pipeline helpers (e.g. parse_profile_dump) without a full restart.
 importlib.reload(sm)
+importlib.reload(re_edit)
 from jt.render.resume import render_docx, render_html, render_pdf  # noqa: E402
 from jt.render.styles import get_style, list_accents, list_styles, resolve_accent_color  # noqa: E402
+from resume_editor import resume_doc_editor  # noqa: E402
 from jt.schemas import (  # noqa: E402
     MasterProfile,
+    ResumeContent,
     SuggestedBenchmark,
     get_active_profile,
     list_profiles,
+    load_profile,
     profile_example_path,
     profile_path,
     set_active_profile,
@@ -251,6 +259,36 @@ def inject_shell() -> None:
   [class*="st-key-"][class*="delete_"] button:hover [data-testid="stIconMaterial"] {
     opacity: 1;
   }
+  /* Exact function chips + section spacing */
+  .jt-func {
+    display: inline-block;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-size: 0.72rem;
+    font-weight: 600;
+    letter-spacing: 0.01em;
+    line-height: 1.2;
+    padding: 0.22rem 0.55rem;
+    border-radius: 6px;
+    border: 1px solid color-mix(in srgb, var(--primary-color, #4c6fff) 40%, transparent);
+    background: color-mix(in srgb, var(--primary-color, #4c6fff) 14%, transparent);
+    color: var(--text-color);
+    white-space: nowrap;
+  }
+  .jt-page-func, .jt-section-func {
+    display: flex;
+    justify-content: flex-end;
+    align-items: center;
+    padding-top: 0.35rem;
+  }
+  .jt-page-func { padding-top: 0.55rem; }
+  [data-testid="stMain"] [data-testid="stVerticalBlockBorderWrapper"] {
+    margin-top: 0.35rem;
+    margin-bottom: 0.95rem;
+  }
+  [data-testid="stMain"] hr {
+    margin: 1.1rem 0 0.85rem;
+    border-color: color-mix(in srgb, var(--text-color) 14%, transparent);
+  }
 </style>
         """,
         unsafe_allow_html=True,
@@ -267,6 +305,70 @@ def _resume_preview_html(html: str) -> str:
     if "</head>" in html:
         return html.replace("</head>", inject + "</head>", 1)
     return inject + html
+
+
+def _resume_edit_state_key(scope: str) -> str:
+    return f"resume_editing_{scope}"
+
+
+def _resume_edit_id_key(scope: str) -> str:
+    return f"resume_edit_id_{scope}"
+
+
+def _begin_resume_edit(scope: str) -> None:
+    st.session_state[_resume_edit_state_key(scope)] = True
+    st.session_state[_resume_edit_id_key(scope)] = uuid.uuid4().hex
+
+
+def _end_resume_edit(scope: str) -> None:
+    st.session_state[_resume_edit_state_key(scope)] = False
+    st.session_state.pop(_resume_edit_id_key(scope), None)
+
+
+def _render_resume_doc_editor(
+    *,
+    scope: str,
+    html: str,
+    on_save,
+) -> bool:
+    """Show Word-like editor. Returns True when edit UI was shown.
+
+    ``on_save(edited_html)`` should persist artifacts; may raise
+    ``re_edit.ResumeHtmlParseError``.
+    """
+    if not st.session_state.get(_resume_edit_state_key(scope)):
+        return False
+    edit_id = st.session_state.get(_resume_edit_id_key(scope)) or uuid.uuid4().hex
+    st.session_state[_resume_edit_id_key(scope)] = edit_id
+    st.caption("Edit like a document — section titles stay fixed. Save rewrites DOCX / HTML / PDF.")
+    result = resume_doc_editor(
+        html=html,
+        edit_id=edit_id,
+        height=820,
+        key=f"resume_doc_editor_{scope}_{edit_id}",
+    )
+    if not isinstance(result, dict):
+        return True
+    if result.get("edit_id") != edit_id:
+        return True
+    action = (result.get("action") or "").strip().lower()
+    if action == "cancel":
+        _end_resume_edit(scope)
+        st.toast("Edit cancelled")
+        st.rerun()
+    if action == "save":
+        try:
+            on_save(result.get("html") or "")
+        except re_edit.ResumeHtmlParseError as exc:
+            st.error(f"Could not save — {exc}", icon=":material/error:")
+            return True
+        except Exception as exc:  # noqa: BLE001
+            st.error(str(exc), icon=":material/error:")
+            return True
+        _end_resume_edit(scope)
+        st.toast("Resume saved")
+        st.rerun()
+    return True
 
 
 def _spawn(args: list[str], log_name: str, detached: bool = False) -> subprocess.Popen:
@@ -320,9 +422,42 @@ def go(page: str) -> None:
     st.session_state["page"] = page
 
 
-def page_header(title: str, lede: str, icon: str) -> None:
-    st.title(title, icon=icon)
+def page_header(title: str, lede: str, icon: str, *, func: str = "") -> None:
+    """Page title; optional ``func`` is the exact CLI family for this screen."""
+    if func:
+        title_col, func_col = st.columns([5, 2], vertical_alignment="center")
+        with title_col:
+            st.title(title, icon=icon)
+        with func_col:
+            st.markdown(
+                f'<div class="jt-page-func"><code class="jt-func">{html.escape(func)}</code></div>',
+                unsafe_allow_html=True,
+            )
+    else:
+        st.title(title, icon=icon)
     st.caption(lede)
+
+
+def section(title: str, *, func: str, icon: str = ":material/terminal:", lede: str = "") -> None:
+    """Consistent section title with the exact CLI / pipeline function on the right."""
+    title_col, func_col = st.columns([5, 2], vertical_alignment="bottom")
+    with title_col:
+        st.subheader(title, icon=icon)
+    with func_col:
+        st.markdown(
+            f'<div class="jt-section-func"><code class="jt-func">{html.escape(func)}</code></div>',
+            unsafe_allow_html=True,
+        )
+    if lede:
+        st.caption(lede)
+
+
+@contextmanager
+def section_box(title: str, *, func: str, icon: str = ":material/terminal:", lede: str = ""):
+    """Bordered section: clear separation + exact function id."""
+    with st.container(border=True):
+        section(title, func=func, icon=icon, lede=lede)
+        yield
 
 
 def icon_button(
@@ -415,40 +550,80 @@ def page_overview() -> None:
         "AI Trainer Job Copilot",
         "Collect roles, score fit, then open a job. Resumes use only facts you already recorded.",
         ":material/work:",
+        func="jt dashboard",
     )
     df = load_jobs_df()
     empty = df.empty
-    with st.grid(4):
-        st.metric("Jobs", 0 if empty else len(df), border=True, icon=":material/work:")
-        st.metric("Analyzed", 0 if empty else int(df["fit"].notna().sum()), border=True, icon=":material/insights:")
-        st.metric("Resumes", 0 if empty else int(df["resume"].sum()), border=True, icon=":material/description:")
-        st.metric("Applied", 0 if empty else int((df["status"] == "applied").sum()), border=True, icon=":material/send:")
+    with section_box(
+        "Pipeline status",
+        func="jt jobs list",
+        icon=":material/monitoring:",
+        lede="Counts from the local jobs database.",
+    ):
+        with st.grid(4):
+            st.metric("Jobs", 0 if empty else len(df), border=True, icon=":material/work:")
+            st.metric(
+                "Analyzed",
+                0 if empty else int(df["fit"].notna().sum()),
+                border=True,
+                icon=":material/insights:",
+            )
+            st.metric(
+                "Resumes",
+                0 if empty else int(df["resume"].sum()),
+                border=True,
+                icon=":material/description:",
+            )
+            st.metric(
+                "Applied",
+                0 if empty else int((df["status"] == "applied").sum()),
+                border=True,
+                icon=":material/send:",
+            )
 
-    st.subheader("Next actions", icon=":material/play_arrow:")
-    boards, analyze = st.columns(2, border=True, gap="medium")
+    boards, analyze = st.columns(2, gap="medium")
     with boards:
-        st.markdown("**ATS boards**")
-        st.caption("Pull new postings, or find company slugs you have not added yet.")
-        if st.button("Collect from ATS boards", icon=":material/download:", width="stretch"):
-            run_bg("collect ats", "collect")
-        if st.button("Discover ATS slugs", icon=":material/search:", width="stretch"):
-            run_bg("sources discover", "sources", "discover")
+        with section_box(
+            "Collect jobs",
+            func="jt collect",
+            icon=":material/download:",
+            lede="Pull new ATS postings, or discover company slugs.",
+        ):
+            if st.button("Collect from ATS boards", icon=":material/download:", width="stretch"):
+                run_bg("collect ats", "collect")
+            if st.button("Discover ATS slugs", icon=":material/search:", width="stretch"):
+                run_bg("sources discover", "sources", "discover")
+            st.caption("Discover → `jt sources discover`")
     with analyze:
-        st.markdown("**Analyze**")
-        st.caption("Score jobs that do not have a fit yet.")
-        n = st.number_input("Max jobs to analyze", 1, 200, 10)
-        if st.button("Analyze new jobs", type="primary", icon=":material/auto_awesome:", width="stretch"):
-            run_bg("analyze batch", "analyze", "--all-new", "--limit", str(int(n)))
+        with section_box(
+            "Analyze new jobs",
+            func="jt analyze --all-new",
+            icon=":material/auto_awesome:",
+            lede="Score jobs that do not have a fit yet.",
+        ):
+            n = st.number_input("Max jobs to analyze", 1, 200, 10)
+            if st.button(
+                "Analyze new jobs", type="primary", icon=":material/auto_awesome:", width="stretch"
+            ):
+                run_bg("analyze batch", "analyze", "--all-new", "--limit", str(int(n)))
 
-    st.subheader("AI engine", icon=":material/psychology:")
-    llm = status_summary()
-    with st.container(border=True):
+    with section_box(
+        "AI engine",
+        func="jt llm status",
+        icon=":material/psychology:",
+        lede="Preferred engine for auto tasks. Save writes `data/llm_prefs.yaml`.",
+    ):
+        llm = status_summary()
         labels = [ENGINE_LABELS[e] for e in ENGINES]
         current = llm["preferred"] if llm["preferred"] in ENGINES else "auto"
         pick_col, save_col, refresh_col = st.columns([3, 1, 1], vertical_alignment="bottom")
-        pick = pick_col.selectbox("Preferred engine for auto tasks", labels, index=ENGINES.index(current))
+        pick = pick_col.selectbox(
+            "Preferred engine for auto tasks", labels, index=ENGINES.index(current)
+        )
         chosen = ENGINES[labels.index(pick)]
-        if save_col.button("Save engine", icon=":material/save:", width="stretch", disabled=(chosen == current)):
+        if save_col.button(
+            "Save engine", icon=":material/save:", width="stretch", disabled=(chosen == current)
+        ):
             save_prefs(engine=chosen)
             st.success(f"Saved: {ENGINE_LABELS[chosen]}", icon=":material/check_circle:")
             st.rerun()
@@ -457,41 +632,41 @@ def page_overview() -> None:
         st.caption(
             f"Engine **{llm['preferred']}**. With **browser**, tasks use both ChatGPT and Claude "
             f"(see config/models.yaml). Fallback probe resolves to **{llm['resolved_auto']}**. "
-            "API keys are optional."
+            "API keys are optional. Save → `jt llm engine`."
         )
 
-    o, a, b = llm["openai"], llm["anthropic"], llm["bridge"] or {}
-    s1, s2, s3 = st.columns(3)
-    with s1:
-        if o["ok"]:
-            st.success(o["detail"], icon=":material/check_circle:")
-        else:
-            st.info(o["detail"], icon=":material/key:")
-    with s2:
-        if a["ok"]:
-            st.success(a["detail"], icon=":material/check_circle:")
-        else:
-            st.info(a["detail"], icon=":material/key:")
-    with s3:
-        if b.get("extension_connected"):
-            st.success(
-                f"Browser session ready. Busy: {b.get('busy') or '-'}",
-                icon=":material/extension:",
-            )
-        elif b.get("error"):
-            st.warning(f"Bridge: {b['error']}", icon=":material/warning:")
-            if st.button("Start bridge", icon=":material/play_arrow:"):
-                _spawn(["bridge", "serve"], "bridge", detached=True)
-                st.rerun()
-        else:
-            st.info(
-                "Open this page in the Chrome where you are logged into ChatGPT or Claude. "
-                "The BrightStar AI Trainer Copilot extension connects by itself.",
-                icon=":material/chrome_reader_mode:",
-            )
-    with st.expander("Setup tips", icon=":material/help:"):
-        st.markdown(
-            """
+        o, a, b = llm["openai"], llm["anthropic"], llm["bridge"] or {}
+        s1, s2, s3 = st.columns(3)
+        with s1:
+            if o["ok"]:
+                st.success(o["detail"], icon=":material/check_circle:")
+            else:
+                st.info(o["detail"], icon=":material/key:")
+        with s2:
+            if a["ok"]:
+                st.success(a["detail"], icon=":material/check_circle:")
+            else:
+                st.info(a["detail"], icon=":material/key:")
+        with s3:
+            if b.get("extension_connected"):
+                st.success(
+                    f"Browser session ready. Busy: {b.get('busy') or '-'}",
+                    icon=":material/extension:",
+                )
+            elif b.get("error"):
+                st.warning(f"Bridge: {b['error']}", icon=":material/warning:")
+                if st.button("Start bridge", icon=":material/play_arrow:"):
+                    _spawn(["bridge", "serve"], "bridge", detached=True)
+                    st.rerun()
+            else:
+                st.info(
+                    "Open this page in the Chrome where you are logged into ChatGPT or Claude. "
+                    "The BrightStar AI Trainer Copilot extension connects by itself.",
+                    icon=":material/chrome_reader_mode:",
+                )
+        with st.expander("Setup tips", icon=":material/help:"):
+            st.markdown(
+                """
 **Preferred:** click the **BrightStar AI Trainer Copilot** extension → side panel → Build.
 That opens ChatGPT/Claude in the same Chrome (Bid-bot style).
 
@@ -501,10 +676,15 @@ extension Settings or Overview.
 **Load once:** `extension/` in `chrome://extensions` (Developer mode → Load unpacked).
 Keep `jt bridge serve` (or this dashboard) running.
 """
-        )
+            )
 
-    st.subheader("Background tasks", icon=":material/pending:")
-    tasks_panel()
+    with section_box(
+        "Background tasks",
+        func="jt … (subprocess)",
+        icon=":material/pending:",
+        lede="Live logs for long-running CLI jobs started from this UI.",
+    ):
+        tasks_panel()
 
 
 def page_jobs() -> None:
@@ -512,13 +692,19 @@ def page_jobs() -> None:
         "Jobs",
         "Filter the list, select a row to score it and draft a resume.",
         ":material/work:",
+        func="jt jobs · analyze · questions · tailor",
     )
     df = load_jobs_df()
     if df.empty:
         st.info("No jobs yet. Collect some from Overview.", icon=":material/info:")
         st.button("Go to overview", icon=":material/arrow_back:", on_click=go, args=("Overview",))
         return
-    with st.container(border=True):
+    with section_box(
+        "Browse & filter",
+        func="jt jobs list",
+        icon=":material/filter_list:",
+        lede="Select a row, then use the detail sections below.",
+    ):
         f1, f2, f3, f4, f5 = st.columns([2, 2, 2, 3, 0.55], vertical_alignment="bottom")
         sources = f1.multiselect("Source", sorted(df["source"].unique()), key="jobs_sources")
         statuses = f2.multiselect("Status", STATUSES, key="jobs_statuses")
@@ -536,44 +722,58 @@ def page_jobs() -> None:
                 st.session_state["jobs_min_fit"] = 0
                 st.session_state["jobs_q"] = ""
                 st.rerun()
-    filtered = df
-    if sources:
-        filtered = filtered[filtered["source"].isin(sources)]
-    if statuses:
-        filtered = filtered[filtered["status"].isin(statuses)]
-    if min_fit:
-        filtered = filtered[filtered["fit"].fillna(-1) >= min_fit]
-    if q:
-        filtered = filtered[
-            filtered["title"].str.contains(q, case=False)
-            | filtered["company"].str.contains(q, case=False)
-        ]
-    st.caption(f"{len(filtered)} shown")
-    if filtered.empty:
-        st.info("Nothing matches these filters.", icon=":material/filter_alt_off:")
-        return
-    ev = st.dataframe(
-        filtered,
-        hide_index=True,
-        on_select="rerun",
-        selection_mode="single-row",
-        column_order=["company", "title", "fit", "status", "pay", "source", "location", "posted", "resume", "relevance", "id"],
-        column_config={
-            "company": st.column_config.TextColumn("Company"),
-            "title": st.column_config.TextColumn("Title"),
-            "fit": st.column_config.ProgressColumn("Fit", min_value=0, max_value=100, format="%.0f"),
-            "status": st.column_config.TextColumn("Status"),
-            "pay": st.column_config.TextColumn("Pay"),
-            "source": st.column_config.TextColumn("Source"),
-            "location": st.column_config.TextColumn("Location"),
-            "posted": st.column_config.TextColumn("Posted"),
-            "resume": st.column_config.CheckboxColumn("Resume"),
-            "relevance": st.column_config.NumberColumn("Relevance", format="%.0f"),
-            "id": st.column_config.NumberColumn("ID"),
-        },
-        alt="Collected jobs",
-        key="jobs_table",
-    )
+        filtered = df
+        if sources:
+            filtered = filtered[filtered["source"].isin(sources)]
+        if statuses:
+            filtered = filtered[filtered["status"].isin(statuses)]
+        if min_fit:
+            filtered = filtered[filtered["fit"].fillna(-1) >= min_fit]
+        if q:
+            filtered = filtered[
+                filtered["title"].str.contains(q, case=False)
+                | filtered["company"].str.contains(q, case=False)
+            ]
+        st.caption(f"{len(filtered)} shown")
+        if filtered.empty:
+            st.info("Nothing matches these filters.", icon=":material/filter_alt_off:")
+            return
+        ev = st.dataframe(
+            filtered,
+            hide_index=True,
+            on_select="rerun",
+            selection_mode="single-row",
+            column_order=[
+                "company",
+                "title",
+                "fit",
+                "status",
+                "pay",
+                "source",
+                "location",
+                "posted",
+                "resume",
+                "relevance",
+                "id",
+            ],
+            column_config={
+                "company": st.column_config.TextColumn("Company"),
+                "title": st.column_config.TextColumn("Title"),
+                "fit": st.column_config.ProgressColumn(
+                    "Fit", min_value=0, max_value=100, format="%.0f"
+                ),
+                "status": st.column_config.TextColumn("Status"),
+                "pay": st.column_config.TextColumn("Pay"),
+                "source": st.column_config.TextColumn("Source"),
+                "location": st.column_config.TextColumn("Location"),
+                "posted": st.column_config.TextColumn("Posted"),
+                "resume": st.column_config.CheckboxColumn("Resume"),
+                "relevance": st.column_config.NumberColumn("Relevance", format="%.0f"),
+                "id": st.column_config.NumberColumn("ID"),
+            },
+            alt="Collected jobs",
+            key="jobs_table",
+        )
     ids = df["id"].tolist()
     if ev.selection.rows:
         picked = int(filtered.iloc[ev.selection.rows[0]]["id"])
@@ -602,140 +802,211 @@ def _render_job_detail(job_id: int) -> None:
     if job is None:
         st.error("That job is no longer in the database.", icon=":material/error:")
         return
-    st.subheader(job.title, icon=":material/description:")
-    st.caption(
-        f"{job.company} · {job.location} · pay {job.pay or 'n/a'} · {job.source} · "
-        f"posted {job.posted or '?'} · applicants {job.applicants or '?'}"
-    )
-    new_status = st.segmented_control(
-        "Status",
-        STATUSES,
-        default=job.status if job.status in STATUSES else STATUSES[0],
-        required=True,
-        key=f"status_{job_id}",
-        width="stretch",
-        wrap=True,
-    )
-    if job.url:
-        st.link_button("Open posting", job.url, icon=":material/open_in_new:")
-    if new_status and new_status != job.status:
-        with db.session() as s:
-            j = s.get(Job, job_id)
-            j.status = new_status
-            s.add(j)
-            s.commit()
-        st.rerun()
-    with st.expander("Job description", icon=":material/article:"):
-        st.text(job.description)
+    with section_box(
+        "Job record",
+        func=f"jt jobs show {job_id}",
+        icon=":material/description:",
+        lede=f"{job.company} · {job.location} · pay {job.pay or 'n/a'} · {job.source} · "
+        f"posted {job.posted or '?'} · applicants {job.applicants or '?'}",
+    ):
+        st.markdown(f"**{job.title}**")
+        new_status = st.segmented_control(
+            "Status",
+            STATUSES,
+            default=job.status if job.status in STATUSES else STATUSES[0],
+            required=True,
+            key=f"status_{job_id}",
+            width="stretch",
+            wrap=True,
+        )
+        if job.url:
+            st.link_button("Open posting", job.url, icon=":material/open_in_new:")
+        if new_status and new_status != job.status:
+            with db.session() as s:
+                j = s.get(Job, job_id)
+                j.status = new_status
+                s.add(j)
+                s.commit()
+            st.rerun()
+        with st.expander("Job description", icon=":material/article:"):
+            st.text(job.description)
 
     if analysis is None:
-        st.info("Not analyzed yet.", icon=":material/info:")
-        if st.button("Analyze this job", type="primary", icon=":material/auto_awesome:"):
-            run_bg(f"analyze {job_id}", "analyze", str(job_id))
+        with section_box(
+            "Analyze",
+            func=f"jt analyze {job_id}",
+            icon=":material/auto_awesome:",
+            lede="Not analyzed yet — run once to unlock gaps, questions, and tailor.",
+        ):
+            if st.button("Analyze this job", type="primary", icon=":material/auto_awesome:"):
+                run_bg(f"analyze {job_id}", "analyze", str(job_id))
     else:
         req, gaps = an.requirements_of(analysis), an.gaps_of(analysis)
-        facts, requirements = st.columns([1, 2], gap="medium")
-        with facts:
-            st.metric("Fit score", f"{analysis.fit_score:.0f}/100", border=True)
-            st.markdown(
-                f"**Domain**  \n{req.domain}  \n\n"
-                f"**Tasks**  \n{', '.join(req.task_types) or 'n/a'}  \n\n"
-                f"**Seniority**  \n{req.seniority}  \n\n"
-                f"**Pay**  \n{req.pay or 'n/a'}  \n\n"
-                f"**Time**  \n{req.time_commitment or 'n/a'}"
-            )
-        with requirements:
-            with st.container(border=True):
-                st.markdown("**Must-haves**")
-                st.markdown("\n".join(f"- {r.text}" for r in req.must_haves) or "-")
-                st.markdown("**Screening signals**")
-                st.markdown("\n".join(f"- {x}" for x in req.screening_signals) or "-")
-            if req.red_flags:
-                st.error("Red flags: " + "; ".join(req.red_flags), icon=":material/flag:")
-        st.subheader("Your gaps", icon=":material/rule:")
-        st.dataframe(
-            pd.DataFrame([g.model_dump() for g in gaps]) if gaps else pd.DataFrame({"gaps": []}),
-            hide_index=True,
-            alt="Gaps for this job",
-        )
-        if st.button("Re-analyze", icon=":material/refresh:", help="Runs a new LLM call."):
-            run_bg(f"analyze {job_id}", "analyze", str(job_id), "--force")
-
-        st.subheader("Gap questions", icon=":material/quiz:")
-        if not qs:
-            st.caption("Questions ask only about gaps. Leave an answer empty when you have no real evidence.")
-            if st.button("Generate questions", type="primary", icon=":material/quiz:"):
-                run_bg(f"questions {job_id}", "questions", str(job_id))
-        else:
-            with st.form(f"qa_{job_id}"):
-                answers = {}
-                for q in qs:
-                    key = f"qa_ans_{job_id}_{q.id}"
-                    if key not in st.session_state:
-                        st.session_state[key] = q.answer or ""
-                    answers[q.id] = st.text_area(
-                        f"[{q.gap}] {q.question}",
-                        height=88,
-                        help="Leave empty if you have no real evidence.",
-                        key=key,
-                    )
-                with st.container(horizontal=True, vertical_alignment="center"):
-                    saved = st.form_submit_button(
-                        "Save answers", type="primary", icon=":material/save:", width="stretch"
-                    )
-                    cleared = icon_button(
-                        "Clear all answer boxes",
-                        form=True,
-                        key=f"qa_clear_{job_id}",
-                    )
-            if cleared:
-                for q in qs:
-                    st.session_state[f"qa_ans_{job_id}_{q.id}"] = ""
-                st.rerun()
-            if saved:
-                for qid, ans in answers.items():
-                    tl.answer_question(qid, ans)
-                st.success("Saved", icon=":material/check_circle:")
-            if st.button("Regenerate questions", icon=":material/refresh:"):
-                run_bg(f"questions {job_id}", "questions", str(job_id), "--regenerate")
-
-        st.subheader("Tailored resume", icon=":material/description:")
-        if st.button("Generate tailored resume", type="primary", icon=":material/auto_awesome:"):
-            run_bg(f"tailor {job_id}", "tailor", str(job_id), "--no-interactive")
-        row = tl.latest_resume(job_id)
-        if row:
-            payload = json.loads(row.resume_json)
-            meta = payload["meta"]
-            coverage, fit_at = st.columns(2)
-            coverage.metric("ATS keyword coverage", f"{meta['ats_coverage']}%", border=True)
-            fit_at.metric("Fit at generation", f"{meta['fit_score']:.0f}", border=True)
-            for w in meta["warnings"] + meta["llm_unverified"]:
-                st.warning("Check before sending: " + w, icon=":material/warning:")
-            if meta["keywords_missing"]:
-                st.caption("Keywords still missing (add only if true): " + ", ".join(meta["keywords_missing"][:15]))
-            with st.container(horizontal=True):
-                for path, label, mime in (
-                    (row.docx_path, "Download DOCX", "application/vnd.openxmlformats-officedocument.wordprocessingml.document"),
-                    (row.pdf_path, "Download PDF", "application/pdf"),
-                    (row.prompt_path, "Download resume prompt", "text/markdown"),
-                ):
-                    if path and Path(path).exists():
-                        st.download_button(
-                            label,
-                            Path(path).read_bytes(),
-                            file_name=Path(path).name,
-                            mime=mime,
-                            icon=":material/download:",
-                        )
-            html_path = Path(row.docx_path).with_suffix(".html")
-            if html_path.exists():
-                st.caption("Preview")
-                components.html(
-                    _resume_preview_html(html_path.read_text(encoding="utf-8")),
-                    height=720,
-                    scrolling=True,
+        with section_box(
+            "Analysis & gaps",
+            func=f"jt analyze {job_id}",
+            icon=":material/insights:",
+            lede="Fit score, must-haves, and profile gaps for this posting.",
+        ):
+            facts, requirements = st.columns([1, 2], gap="medium")
+            with facts:
+                st.metric("Fit score", f"{analysis.fit_score:.0f}/100", border=True)
+                st.markdown(
+                    f"**Domain**  \n{req.domain}  \n\n"
+                    f"**Tasks**  \n{', '.join(req.task_types) or 'n/a'}  \n\n"
+                    f"**Seniority**  \n{req.seniority}  \n\n"
+                    f"**Pay**  \n{req.pay or 'n/a'}  \n\n"
+                    f"**Time**  \n{req.time_commitment or 'n/a'}"
                 )
-    tasks_panel()
+            with requirements:
+                with st.container(border=True):
+                    st.markdown("**Must-haves**")
+                    st.markdown("\n".join(f"- {r.text}" for r in req.must_haves) or "-")
+                    st.markdown("**Screening signals**")
+                    st.markdown("\n".join(f"- {x}" for x in req.screening_signals) or "-")
+                if req.red_flags:
+                    st.error("Red flags: " + "; ".join(req.red_flags), icon=":material/flag:")
+            section("Your gaps", func=f"jt jobs gaps {job_id}", icon=":material/rule:")
+            st.dataframe(
+                pd.DataFrame([g.model_dump() for g in gaps])
+                if gaps
+                else pd.DataFrame({"gaps": []}),
+                hide_index=True,
+                alt="Gaps for this job",
+            )
+            if st.button("Re-analyze", icon=":material/refresh:", help="Runs a new LLM call."):
+                run_bg(f"analyze {job_id}", "analyze", str(job_id), "--force")
+
+        with section_box(
+            "Gap questions",
+            func=f"jt questions {job_id}",
+            icon=":material/quiz:",
+            lede="Questions ask only about gaps. Leave empty when you have no real evidence.",
+        ):
+            if not qs:
+                if st.button("Generate questions", type="primary", icon=":material/quiz:"):
+                    run_bg(f"questions {job_id}", "questions", str(job_id))
+            else:
+                with st.form(f"qa_{job_id}"):
+                    answers = {}
+                    for q in qs:
+                        key = f"qa_ans_{job_id}_{q.id}"
+                        if key not in st.session_state:
+                            st.session_state[key] = q.answer or ""
+                        answers[q.id] = st.text_area(
+                            f"[{q.gap}] {q.question}",
+                            height=88,
+                            help="Leave empty if you have no real evidence.",
+                            key=key,
+                        )
+                    with st.container(horizontal=True, vertical_alignment="center"):
+                        saved = st.form_submit_button(
+                            "Save answers",
+                            type="primary",
+                            icon=":material/save:",
+                            width="stretch",
+                        )
+                        cleared = icon_button(
+                            "Clear all answer boxes",
+                            form=True,
+                            key=f"qa_clear_{job_id}",
+                        )
+                if cleared:
+                    for q in qs:
+                        st.session_state[f"qa_ans_{job_id}_{q.id}"] = ""
+                    st.rerun()
+                if saved:
+                    for qid, ans in answers.items():
+                        tl.answer_question(qid, ans)
+                    st.success("Saved", icon=":material/check_circle:")
+                if st.button("Regenerate questions", icon=":material/refresh:"):
+                    run_bg(f"questions {job_id}", "questions", str(job_id), "--regenerate")
+
+        with section_box(
+            "Tailored resume",
+            func=f"jt tailor {job_id}",
+            icon=":material/description:",
+            lede="Draft uses only facts in the active profile and saved answers.",
+        ):
+            if st.button(
+                "Generate tailored resume", type="primary", icon=":material/auto_awesome:"
+            ):
+                run_bg(f"tailor {job_id}", "tailor", str(job_id), "--no-interactive")
+            row = tl.latest_resume(job_id)
+            if row:
+                payload = json.loads(row.resume_json)
+                meta = payload["meta"]
+                coverage, fit_at = st.columns(2)
+                coverage.metric("ATS keyword coverage", f"{meta['ats_coverage']}%", border=True)
+                fit_at.metric("Fit at generation", f"{meta['fit_score']:.0f}", border=True)
+                for w in meta["warnings"] + meta["llm_unverified"]:
+                    st.warning("Check before sending: " + w, icon=":material/warning:")
+                if meta["keywords_missing"]:
+                    st.caption(
+                        "Keywords still missing (add only if true): "
+                        + ", ".join(meta["keywords_missing"][:15])
+                    )
+                person = _active_profile_download_stem()
+                with st.container(horizontal=True):
+                    for path, label, mime in (
+                        (
+                            row.docx_path,
+                            "Download DOCX",
+                            "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                        ),
+                        (row.pdf_path, "Download PDF", "application/pdf"),
+                        (row.prompt_path, "Download resume prompt", "text/markdown"),
+                    ):
+                        if path and Path(path).exists():
+                            stored = Path(path)
+                            kind = "prompt" if "prompt" in stored.stem.lower() else "resume"
+                            st.download_button(
+                                label,
+                                stored.read_bytes(),
+                                file_name=_download_file_name(person, f"{kind}{stored.suffix}"),
+                                mime=mime,
+                                icon=":material/download:",
+                            )
+                    if st.button(
+                        "Edit resume",
+                        icon=":material/edit_document:",
+                        key=f"edit_tailored_resume_{job_id}",
+                    ):
+                        _begin_resume_edit(f"job_{job_id}")
+                        st.rerun()
+                html_path = Path(row.docx_path).with_suffix(".html")
+                edit_html = ""
+                if html_path.exists():
+                    edit_html = html_path.read_text(encoding="utf-8")
+                elif row.resume_json:
+                    try:
+                        stored = json.loads(row.resume_json)
+                        edit_html = render_html(
+                            ResumeContent.model_validate(stored.get("resume") or {}),
+                            template_id=preferred_resume_template(),
+                            accent_id=preferred_resume_accent() or None,
+                        )
+                    except Exception:  # noqa: BLE001
+                        edit_html = ""
+                if _render_resume_doc_editor(
+                    scope=f"job_{job_id}",
+                    html=edit_html,
+                    on_save=lambda edited: re_edit.save_tailored_resume_edit(job_id, edited),
+                ):
+                    pass
+                elif edit_html:
+                    st.caption("Preview")
+                    components.html(
+                        _resume_preview_html(edit_html),
+                        height=720,
+                        scrolling=True,
+                    )
+    with section_box(
+        "Background tasks",
+        func="jt … (subprocess)",
+        icon=":material/pending:",
+    ):
+        tasks_panel()
 
 
 def page_profile() -> None:
@@ -743,55 +1014,71 @@ def page_profile() -> None:
         "Profiles",
         "Named candidate profiles. Resumes only use facts written in the active profile or in your answers.",
         ":material/person:",
+        func="jt profile",
     )
     names = list_profiles()
     active = get_active_profile()
     example = profile_example_path()
     example_text = example.read_text(encoding="utf-8") if example.exists() else "basics:\n  name: \"\"\n"
 
-    picker, create = st.columns([2, 1], gap="medium")
-    with picker:
-        if names:
-            options = names
-            idx = options.index(active) if active in options else 0
-            chosen = st.selectbox("Active profile", options, index=idx, key="profile_picker")
-            if chosen != active:
-                set_active_profile(chosen)
-                st.session_state.pop("profile_yaml", None)
-                st.rerun()
-            slug = chosen
-        else:
-            st.info("No profiles yet. Create one on the right, or import a resume.", icon=":material/info:")
-            slug = None
-    with create:
-        new_name = st.text_input("New profile slug", placeholder="jane", key="profile_new_slug")
-        if st.button("Create empty profile", icon=":material/person_add:", width="stretch"):
-            try:
-                slug_new = validate_slug(new_name)
-            except ValueError as e:
-                st.error(str(e), icon=":material/error:")
-            else:
-                path_new = profile_path(slug_new)
-                if path_new.exists():
-                    st.error(f"Profile '{slug_new}' already exists.", icon=":material/error:")
-                else:
-                    config.ensure_dirs()
-                    path_new.parent.mkdir(parents=True, exist_ok=True)
-                    path_new.write_text(example_text, encoding="utf-8")
-                    set_active_profile(slug_new)
+    with section_box(
+        "Active profile",
+        func="jt profile use · list",
+        icon=":material/badge:",
+        lede="Switch the active slug used by analyze, tailor, and match.",
+    ):
+        picker, create = st.columns([2, 1], gap="medium")
+        with picker:
+            if names:
+                options = names
+                idx = options.index(active) if active in options else 0
+                chosen = st.selectbox("Active profile", options, index=idx, key="profile_picker")
+                if chosen != active:
+                    set_active_profile(chosen)
                     st.session_state.pop("profile_yaml", None)
-                    st.success(f"Created {slug_new}", icon=":material/check_circle:")
                     st.rerun()
+                slug = chosen
+            else:
+                st.info(
+                    "No profiles yet. Create one on the right, or import a resume.",
+                    icon=":material/info:",
+                )
+                slug = None
+        with create:
+            new_name = st.text_input("New profile slug", placeholder="jane", key="profile_new_slug")
+            if st.button("Create empty profile", icon=":material/person_add:", width="stretch"):
+                try:
+                    slug_new = validate_slug(new_name)
+                except ValueError as e:
+                    st.error(str(e), icon=":material/error:")
+                else:
+                    path_new = profile_path(slug_new)
+                    if path_new.exists():
+                        st.error(f"Profile '{slug_new}' already exists.", icon=":material/error:")
+                    else:
+                        config.ensure_dirs()
+                        path_new.parent.mkdir(parents=True, exist_ok=True)
+                        path_new.write_text(example_text, encoding="utf-8")
+                        set_active_profile(slug_new)
+                        st.session_state.pop("profile_yaml", None)
+                        st.success(f"Created {slug_new}", icon=":material/check_circle:")
+                        st.rerun()
 
     if not slug:
-        tasks_panel()
+        with section_box("Background tasks", func="jt … (subprocess)", icon=":material/pending:"):
+            tasks_panel()
         return
 
     path = profile_path(slug)
     text = path.read_text(encoding="utf-8") if path.exists() else example_text
     editor, side = st.columns([1.5, 1], gap="medium")
     with editor:
-        with st.container(border=True):
+        with section_box(
+            "Edit profile YAML",
+            func="jt profile show",
+            icon=":material/edit_note:",
+            lede="Facts only. Resumes cannot invent employers, dates, metrics, or tools.",
+        ):
             editor_key = f"profile_yaml_{slug}"
             if st.session_state.get("profile_editor_slug") != slug:
                 st.session_state["profile_editor_slug"] = slug
@@ -827,9 +1114,12 @@ def page_profile() -> None:
                     )
                     st.rerun()
     with side:
-        with st.container(border=True):
-            st.subheader("Import", icon=":material/upload_file:")
-            st.caption(f"Import overwrites `{slug}` with what the model can support from the file.")
+        with section_box(
+            "Import resume",
+            func="jt profile import",
+            icon=":material/upload_file:",
+            lede=f"Import overwrites `{slug}` with what the model can support from the file.",
+        ):
             if "profile_resume_nonce" not in st.session_state:
                 st.session_state["profile_resume_nonce"] = 0
             up = st.file_uploader(
@@ -861,23 +1151,38 @@ def page_profile() -> None:
                     key="profile_resume_clear",
                     disabled=up is None,
                 ):
-                    st.session_state["profile_resume_nonce"] = int(st.session_state["profile_resume_nonce"]) + 1
+                    st.session_state["profile_resume_nonce"] = (
+                        int(st.session_state["profile_resume_nonce"]) + 1
+                    )
                     st.rerun()
-            if st.button("Fetch LinkedIn profile text", icon=":material/travel_explore:", width="stretch",
-                         help="Uses your own Octo profile."):
+            if st.button(
+                "Fetch LinkedIn profile text",
+                icon=":material/travel_explore:",
+                width="stretch",
+                help="Uses your own Octo profile. → `jt octo profile-text`",
+            ):
                 run_bg("linkedin profile text", "octo", "profile-text")
-        with st.container(border=True):
-            st.subheader("LinkedIn advice", icon=":material/lightbulb:")
-            st.caption("Advice is drafted from jobs you have already analyzed.")
+            st.caption("LinkedIn text fetch → `jt octo profile-text`")
+        with section_box(
+            "LinkedIn advice",
+            func="jt profile optimize",
+            icon=":material/lightbulb:",
+            lede="Advice is drafted from jobs you have already analyzed.",
+        ):
             if st.button("Generate advice", icon=":material/auto_awesome:", width="stretch"):
                 run_bg("profile optimize", "profile", "optimize", "--profile", slug)
     adv = config.OUTPUT_DIR / f"linkedin_advice_{slug}.md"
     legacy_adv = config.OUTPUT_DIR / "linkedin_advice.md"
     show_adv = adv if adv.exists() else legacy_adv
     if show_adv.exists():
-        st.subheader("Latest advice", icon=":material/article:")
-        st.markdown(show_adv.read_text(encoding="utf-8"))
-    tasks_panel()
+        with section_box(
+            "Latest advice",
+            func="output/linkedin_advice_*.md",
+            icon=":material/article:",
+        ):
+            st.markdown(show_adv.read_text(encoding="utf-8"))
+    with section_box("Background tasks", func="jt … (subprocess)", icon=":material/pending:"):
+        tasks_panel()
 
 
 def page_market() -> None:
@@ -885,38 +1190,52 @@ def page_market() -> None:
         "Market and gaps",
         "What analyzed postings ask for, and which gaps show up most often.",
         ":material/insights:",
+        func="jt profile · market rollup",
     )
     md = pf.market_data()
     if not md["n_jobs"]:
         st.info("Analyze some jobs first.", icon=":material/info:")
         st.button("Go to jobs", icon=":material/arrow_forward:", on_click=go, args=("Jobs",))
         return
-    st.metric("Analyzed jobs", md["n_jobs"], border=True)
-    keywords, domains = st.columns(2, gap="medium")
-    with keywords:
-        st.subheader("Most requested keywords", icon=":material/key:")
-        st.bar_chart(
-            pd.Series({k: n for k, n in md["keyword_counts"]}),
-            horizontal=True,
-            alt="Most requested keywords",
+    with section_box(
+        "Analyzed market",
+        func="pf.market_data()",
+        icon=":material/monitoring:",
+        lede="Aggregated from stored JobAnalysis rows.",
+    ):
+        st.metric("Analyzed jobs", md["n_jobs"], border=True)
+        keywords, domains = st.columns(2, gap="medium")
+        with keywords:
+            section("Most requested keywords", func="keywords", icon=":material/key:")
+            st.bar_chart(
+                pd.Series({k: n for k, n in md["keyword_counts"]}),
+                horizontal=True,
+                alt="Most requested keywords",
+            )
+        with domains:
+            section("Domains", func="domains", icon=":material/category:")
+            if md["top_domains"]:
+                with st.container(horizontal=True):
+                    for domain in md["top_domains"]:
+                        st.badge(domain, color="blue")
+            else:
+                st.caption("No domains yet.")
+    with section_box(
+        "Your most frequent gaps",
+        func="gaps rollup",
+        icon=":material/rule:",
+        lede="Close these first. Add a fact only when you can point to real evidence.",
+    ):
+        st.dataframe(
+            pd.DataFrame(md["top_gaps"], columns=["gap", "jobs"]),
+            hide_index=True,
+            alt="Most frequent gaps",
         )
-    with domains:
-        st.subheader("Domains", icon=":material/category:")
-        if md["top_domains"]:
-            with st.container(horizontal=True):
-                for domain in md["top_domains"]:
-                    st.badge(domain, color="blue")
-        else:
-            st.caption("No domains yet.")
-    st.subheader("Your most frequent gaps", icon=":material/rule:")
-    st.caption("Close these first. Add a fact only when you can point to real evidence.")
-    st.dataframe(
-        pd.DataFrame(md["top_gaps"], columns=["gap", "jobs"]),
-        hide_index=True,
-        alt="Most frequent gaps",
-    )
-    st.subheader("Most common must-haves", icon=":material/checklist:")
-    with st.container(border=True):
+    with section_box(
+        "Most common must-haves",
+        func="must-haves rollup",
+        icon=":material/checklist:",
+    ):
         st.markdown("\n".join(f"- {r}" for r in md["top_requirements"]) or "-")
 
 
@@ -946,7 +1265,47 @@ def _suggestion_label(folder: Path) -> str:
     return f"{data.persona_name} · {data.last_company} · {target}"
 
 
-def _download(folder: Path, filename: str, label: str) -> None:
+def _download_name_stem(*candidates: str) -> str:
+    """Build a short download stem from a person name, e.g. 'Alan Jeong' → 'Alan'."""
+    for raw in candidates:
+        text = (raw or "").strip()
+        if not text:
+            continue
+        parts = re.findall(r"[A-Za-z0-9]+", text)
+        if parts:
+            return parts[0][:40]
+    return "Resume"
+
+
+def _active_profile_download_stem() -> str:
+    """Prefer the active profile's display name for download filenames."""
+    try:
+        slug = get_active_profile()
+        if slug:
+            name = (load_profile(slug).basics.name or "").strip()
+            if name:
+                return _download_name_stem(name)
+            return _download_name_stem(slug.replace("-", " ").replace("_", " "))
+    except Exception:  # noqa: BLE001
+        pass
+    return "Resume"
+
+
+def _download_file_name(stem: str, stored_name: str) -> str:
+    """Map stored artifact names to unique download names like Alan_Resume.pdf."""
+    suffix = Path(stored_name).suffix.lower() or ""
+    kind = Path(stored_name).stem.lower()
+    label = {
+        "resume": "Resume",
+        "profile": "Notes",
+        "prompt": "Prompt",
+        "suggestion": "Suggestion",
+    }.get(kind, kind.capitalize() or "File")
+    safe = re.sub(r"[^A-Za-z0-9_-]+", "_", (stem or "Resume").strip()) or "Resume"
+    return f"{safe}_{label}{suffix}"
+
+
+def _download(folder: Path, filename: str, label: str, *, stem: str = "") -> None:
     path = folder / filename
     if path.exists():
         mime = {
@@ -955,10 +1314,11 @@ def _download(folder: Path, filename: str, label: str) -> None:
             ".pdf": "application/pdf",
             ".docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
         }.get(path.suffix.lower(), "application/octet-stream")
+        download_as = _download_file_name(stem or _active_profile_download_stem(), filename)
         st.download_button(
             label,
             path.read_bytes(),
-            file_name=path.name,
+            file_name=download_as,
             mime=mime,
             key=f"dl-{folder.name}-{filename}",
             icon=":material/download:",
@@ -1056,12 +1416,19 @@ def teaching_workspace() -> None:
         st.subheader(folder.name)
 
     html, md = folder / "resume.html", folder / "profile.md"
+    if sm.refresh_suggestion_resume_if_stale(folder):
+        st.toast("Updated project section label to Representative projects")
     _ensure_suggestion_pdf(folder)
+    person = _download_name_stem(
+        (data.persona_name if data is not None else ""),
+        _active_profile_download_stem(),
+        folder.name,
+    )
     with st.container(horizontal=True):
-        _download(folder, "resume.docx", "Download DOCX")
-        _download(folder, "resume.pdf", "Download PDF")
-        _download(folder, "resume.html", "Download HTML")
-        _download(folder, "profile.md", "Download notes")
+        _download(folder, "resume.docx", "Download DOCX", stem=person)
+        _download(folder, "resume.pdf", "Download PDF", stem=person)
+        _download(folder, "resume.html", "Download HTML", stem=person)
+        _download(folder, "profile.md", "Download notes", stem=person)
         if st.button(
             "Suitable jobs / types",
             icon=":material/work:",
@@ -1199,20 +1566,41 @@ def teaching_workspace() -> None:
             st.rerun()
         st.caption(
             "Style only — section order stays Professional Summary → Skills (by category) → "
-            "Experience → Projects → Education → Licenses / Certifications. "
-            "Preview updates live; Apply style writes the files."
+            "Experience → Representative projects → Education → Licenses / Certifications. "
+            "Preview updates live; Apply style writes the files. Edit opens a Word-like page."
         )
+        live_html = ""
+        if suggestion is not None:
+            live_html = render_html(
+                sm.sample_to_resume(suggestion),
+                template_id=preview_tid,
+                accent_id=preview_accent,
+            )
+        edit_scope = f"teaching_{folder.name}"
+        with st.container(horizontal=True):
+            if st.button(
+                "Edit resume",
+                icon=":material/edit_document:",
+                key=f"edit_teaching_resume_{folder.name}",
+                disabled=not (live_html or html.exists()),
+            ):
+                _begin_resume_edit(edit_scope)
+                st.rerun()
+        edit_source = live_html or (
+            html.read_text(encoding="utf-8") if html.exists() else ""
+        )
+        if _render_resume_doc_editor(
+            scope=edit_scope,
+            html=edit_source,
+            on_save=lambda edited: re_edit.save_teaching_resume_edit(folder, edited),
+        ):
+            return
         preview_pane, saved_pane = st.tabs(["Preview", "Saved file"])
         with preview_pane:
-            if suggestion is not None:
-                live = render_html(
-                    sm.sample_to_resume(suggestion),
-                    template_id=preview_tid,
-                    accent_id=preview_accent,
-                )
+            if live_html:
                 st.badge(labels_map.get(preview_tid, preview_tid), color="blue")
                 st.badge(preview_accent, color="gray")
-                components.html(_resume_preview_html(live), height=720, scrolling=True)
+                components.html(_resume_preview_html(live_html), height=720, scrolling=True)
             else:
                 st.info(
                     "Build a teaching model first — then preview styles here.",
@@ -1542,6 +1930,7 @@ def page_samples() -> None:
         "Teaching models",
         "Build a top 0.1% profile and resume for a virtual candidate, then teach from the notes.",
         ":material/school:",
+        func="jt samples suggest",
     )
     _ensure_suggest_lists()
     # Apply deferred mutations before any keyed widgets exist (Streamlit forbids
@@ -1556,12 +1945,13 @@ def page_samples() -> None:
             st.session_state["suggest_profile_file_nonce"] = (
                 int(st.session_state.get("suggest_profile_file_nonce") or 0) + 1
             )
-    with st.container(border=True):
-        st.subheader("Profile dump", icon=":material/upload_file:")
-        st.caption(
-            "Paste or upload a LinkedIn-style profile .txt, then Fill form. "
-            "Name, contact, roles, school, and company blurbs are mapped into the fields below."
-        )
+    with section_box(
+        "1 · Profile dump",
+        func="sm.parse_profile_dump",
+        icon=":material/upload_file:",
+        lede="Paste or upload a LinkedIn-style profile .txt, then Fill form. "
+        "Name, contact, roles, school, and company blurbs map into the fields below.",
+    ):
         st.text_area(
             "Paste profile text",
             height=140,
@@ -1601,8 +1991,12 @@ def page_samples() -> None:
                 icon=":material/check_circle:",
             )
 
-        st.divider()
-        st.subheader("Who and where", icon=":material/badge:")
+    with section_box(
+        "2 · Who and where",
+        func="samples suggest --name --company",
+        icon=":material/badge:",
+        lede="Required: virtual candidate name + real last company. Optional contact and JD targeting.",
+    ):
         name_col, company_col, title_col = st.columns(3, vertical_alignment="bottom")
         name = name_col.text_input(
             "Virtual candidate name", placeholder="Mina Cho", key="suggest_name"
@@ -1660,9 +2054,12 @@ def page_samples() -> None:
             key=f"suggest_jd_file_{st.session_state['suggest_jd_file_nonce']}",
         )
 
-        st.divider()
-        st.caption("Optional profile sections — add only what you want to pin. Everything else stays optional.")
-
+    with section_box(
+        "3 · Optional pinned sections",
+        func="--seed-mode provided|last_company",
+        icon=":material/list_alt:",
+        lede="Add only what you want to pin. Everything else stays optional.",
+    ):
         _suggest_section_header(
             "Experience",
             add_label="Add position",
@@ -1772,6 +2169,12 @@ def page_samples() -> None:
                     placeholder="PLC, lockout, FANUC",
                 )
 
+    with section_box(
+        "4 · Build",
+        func="jt samples suggest --request",
+        icon=":material/auto_awesome:",
+        lede="Writes a request YAML then runs the suggest pipeline in the background.",
+    ):
         if "suggest_use_provided" not in st.session_state:
             st.session_state["suggest_use_provided"] = (
                 preferred_suggest_seed_mode() == "provided"
@@ -1868,10 +2271,12 @@ def page_samples() -> None:
                 run_bg(f"suggest {company_val}", "samples", "suggest", "--request", str(req))
                 st.session_state["suggestion_pending"] = sm._slug(name_val, company_val)
 
-    with st.expander("Recover from ChatGPT JSON (timeout)", icon=":material/content_paste:"):
-        st.caption(
-            "If Build timed out but ChatGPT already showed JSON, paste the object here to save the teaching model."
-        )
+    with section_box(
+        "Recover from ChatGPT JSON",
+        func="sm.import_suggestion_json",
+        icon=":material/content_paste:",
+        lede="If Build timed out but ChatGPT already showed JSON, paste the object here to save the teaching model.",
+    ):
         pasted = st.text_area("Paste suggestion JSON", height=160, key="suggest_paste_json")
         if st.button("Save pasted JSON", icon=":material/save:", key="suggest_paste_save"):
             try:
@@ -1892,10 +2297,20 @@ def page_samples() -> None:
             except Exception as e:  # noqa: BLE001
                 st.error(str(e), icon=":material/error:")
 
-    st.subheader("Teach from the model", icon=":material/menu_book:")
-    teaching_workspace()
+    with section_box(
+        "5 · Teach from the model",
+        func="sm.suitable_for_suggestion_dir",
+        icon=":material/menu_book:",
+        lede="Open a saved model, download files, match jobs, and preview resume styles.",
+    ):
+        teaching_workspace()
 
-    with st.expander("Archetype benchmarks", icon=":material/compare:"):
+    with section_box(
+        "Archetype benchmarks",
+        func="jt samples generate · compare",
+        icon=":material/compare:",
+        lede="Illustrative archetype samples — always labelled as benchmarks, not real people.",
+    ):
         arch = sm.archetypes()
         key = st.selectbox("Archetype", list(arch), format_func=lambda k: arch[k]["name"])
         st.markdown(arch[key]["description"])
@@ -1913,10 +2328,10 @@ def page_samples() -> None:
         sample_md = config.SAMPLES_DIR / f"{key}.md"
         cmp_md = config.OUTPUT_DIR / f"compare_{key}.md"
         if cmp_md.exists():
-            st.subheader("You vs benchmark")
+            section("You vs benchmark", func="jt samples compare", icon=":material/compare:")
             st.markdown(cmp_md.read_text(encoding="utf-8"))
         if sample_md.exists():
-            st.subheader("Benchmark")
+            section("Benchmark", func="jt samples generate", icon=":material/description:")
             st.markdown(sample_md.read_text(encoding="utf-8"))
         else:
             st.caption("Not generated yet.")
@@ -1927,101 +2342,140 @@ def page_tracker() -> None:
         "Application tracker",
         "Shortlist or mark a job applied on Jobs, then record the stage here.",
         ":material/checklist:",
+        func="Application table",
     )
     with db.session() as s:
         apps = s.exec(select(Application)).all()
-        jobs = {j.id: j for j in s.exec(select(Job).where(Job.status.in_(["shortlisted", "applied"]))).all()}
+        jobs = {
+            j.id: j
+            for j in s.exec(select(Job).where(Job.status.in_(["shortlisted", "applied"]))).all()
+        }
         all_apps = {a.job_id: a for a in apps}
     if jobs:
-        jid = st.selectbox(
-            "Job",
-            list(jobs),
-            format_func=lambda i: f"{jobs[i].company} · {jobs[i].title}",
-        )
-        cur = all_apps.get(jid)
-        notes_key = f"track_notes_{jid}"
-        if notes_key not in st.session_state:
-            st.session_state[notes_key] = cur.notes if cur else ""
-        with st.form("track"):
-            stage = st.segmented_control(
-                "Stage",
-                STAGES,
-                default=cur.stage if cur and cur.stage in STAGES else STAGES[0],
-                required=True,
-                width="stretch",
-                wrap=True,
-            )
-            notes = st.text_area("Notes", height=120, key=notes_key)
-            with st.container(horizontal=True, vertical_alignment="center"):
-                saved = st.form_submit_button(
-                    "Save", type="primary", icon=":material/save:", width="stretch"
-                )
-                cleared = icon_button(
-                    "Clear notes",
-                    key=f"track_notes_clear_{jid}",
-                    form=True,
-                )
-        if cleared:
-            st.session_state[notes_key] = ""
-            st.rerun()
-        if saved:
-            with db.session() as s:
-                row = s.exec(select(Application).where(Application.job_id == jid)).first() or Application(job_id=jid)
-                row.stage, row.notes, row.updated_at = stage, notes, utcnow()
-                s.add(row)
-                s.commit()
-            st.rerun()
-        if cur and icon_button(
-            "Remove this application tracker entry",
-            key=f"delete_track_{jid}",
-            icon=":material/delete:",
+        with section_box(
+            "Update stage",
+            func="Application.save",
+            icon=":material/edit:",
+            lede="Stage + notes for a shortlisted or applied job.",
         ):
-            with db.session() as s:
-                row = s.exec(select(Application).where(Application.job_id == jid)).first()
-                if row:
-                    s.delete(row)
+            jid = st.selectbox(
+                "Job",
+                list(jobs),
+                format_func=lambda i: f"{jobs[i].company} · {jobs[i].title}",
+            )
+            cur = all_apps.get(jid)
+            notes_key = f"track_notes_{jid}"
+            if notes_key not in st.session_state:
+                st.session_state[notes_key] = cur.notes if cur else ""
+            with st.form("track"):
+                stage = st.segmented_control(
+                    "Stage",
+                    STAGES,
+                    default=cur.stage if cur and cur.stage in STAGES else STAGES[0],
+                    required=True,
+                    width="stretch",
+                    wrap=True,
+                )
+                notes = st.text_area("Notes", height=120, key=notes_key)
+                with st.container(horizontal=True, vertical_alignment="center"):
+                    saved = st.form_submit_button(
+                        "Save", type="primary", icon=":material/save:", width="stretch"
+                    )
+                    cleared = icon_button(
+                        "Clear notes",
+                        key=f"track_notes_clear_{jid}",
+                        form=True,
+                    )
+            if cleared:
+                st.session_state[notes_key] = ""
+                st.rerun()
+            if saved:
+                with db.session() as s:
+                    row = (
+                        s.exec(select(Application).where(Application.job_id == jid)).first()
+                        or Application(job_id=jid)
+                    )
+                    row.stage, row.notes, row.updated_at = stage, notes, utcnow()
+                    s.add(row)
                     s.commit()
-            st.session_state.pop(notes_key, None)
-            st.toast("Tracking entry deleted")
-            st.rerun()
+                st.rerun()
+            if cur and icon_button(
+                "Remove this application tracker entry",
+                key=f"delete_track_{jid}",
+                icon=":material/delete:",
+            ):
+                with db.session() as s:
+                    row = s.exec(select(Application).where(Application.job_id == jid)).first()
+                    if row:
+                        s.delete(row)
+                        s.commit()
+                st.session_state.pop(notes_key, None)
+                st.toast("Tracking entry deleted")
+                st.rerun()
     else:
-        st.info("Mark a job shortlisted or applied on Jobs to track it here.", icon=":material/info:")
+        st.info(
+            "Mark a job shortlisted or applied on Jobs to track it here.",
+            icon=":material/info:",
+        )
         st.button("Go to jobs", icon=":material/arrow_forward:", on_click=go, args=("Jobs",))
     if apps:
-        st.subheader("History", icon=":material/history:")
-        with db.session() as s:
-            names = {j.id: f"{j.company} · {j.title}" for j in s.exec(select(Job)).all()}
-        st.dataframe(
-            pd.DataFrame([
-                {"job": names.get(a.job_id, a.job_id), "stage": a.stage, "notes": a.notes, "updated": a.updated_at}
-                for a in apps
-            ]),
-            hide_index=True,
-            alt="Application history",
-        )
+        with section_box("History", func="select(Application)", icon=":material/history:"):
+            with db.session() as s:
+                names = {j.id: f"{j.company} · {j.title}" for j in s.exec(select(Job)).all()}
+            st.dataframe(
+                pd.DataFrame(
+                    [
+                        {
+                            "job": names.get(a.job_id, a.job_id),
+                            "stage": a.stage,
+                            "notes": a.notes,
+                            "updated": a.updated_at,
+                        }
+                        for a in apps
+                    ]
+                ),
+                hide_index=True,
+                alt="Application history",
+            )
 
 
 def page_llm_log() -> None:
-    page_header("LLM call log", "The last 100 model calls, newest first.", ":material/history:")
+    page_header(
+        "LLM call log",
+        "The last 100 model calls, newest first.",
+        ":material/history:",
+        func="LLMCall",
+    )
     with db.session() as s:
         calls = s.exec(select(LLMCall).order_by(LLMCall.id.desc()).limit(100)).all()
     if not calls:
         st.info("No calls yet.", icon=":material/info:")
         return
-    st.dataframe(
-        pd.DataFrame([
-            {"id": c.id, "when": c.created_at, "task": c.task, "provider": c.provider,
-             "ok": c.ok, "seconds": c.duration_s, "error": c.error[:80]}
-            for c in calls
-        ]),
-        hide_index=True,
-        alt="Recent LLM calls",
-    )
-    pick = st.selectbox("Inspect call", [c.id for c in calls], format_func=lambda i: f"{i}")
-    c = next(x for x in calls if x.id == pick)
-    prompt_col, reply_col = st.columns(2, gap="medium")
-    prompt_col.text_area("Prompt", c.prompt, height=320)
-    reply_col.text_area("Reply", c.reply, height=320)
+    with section_box("Recent calls", func="select(LLMCall)", icon=":material/table:"):
+        st.dataframe(
+            pd.DataFrame(
+                [
+                    {
+                        "id": c.id,
+                        "when": c.created_at,
+                        "task": c.task,
+                        "provider": c.provider,
+                        "ok": c.ok,
+                        "seconds": c.duration_s,
+                        "error": c.error[:80],
+                    }
+                    for c in calls
+                ]
+            ),
+            hide_index=True,
+            alt="Recent LLM calls",
+        )
+    with section_box("Inspect call", func="LLMCall.prompt / reply", icon=":material/search:"):
+        pick = st.selectbox("Inspect call", [c.id for c in calls], format_func=lambda i: f"{i}")
+        c = next(x for x in calls if x.id == pick)
+        prompt_col, reply_col = st.columns(2, gap="medium")
+        prompt_col.text_area("Prompt", c.prompt, height=320)
+        reply_col.text_area("Reply", c.reply, height=320)
 
 
 def page_manual() -> None:
@@ -2029,41 +2483,59 @@ def page_manual() -> None:
         "Manual replies",
         "For tasks set to provider: manual in config/models.yaml. Copy the prompt into any chat, then paste the reply.",
         ":material/forum:",
+        func="output/manual/*.prompt.md",
     )
     d = config.OUTPUT_DIR / "manual"
     d.mkdir(parents=True, exist_ok=True)
-    pending = sorted(p for p in d.glob("*.prompt.md") if not p.with_name(p.name.replace(".prompt.", ".reply.")).exists())
+    pending = sorted(
+        p
+        for p in d.glob("*.prompt.md")
+        if not p.with_name(p.name.replace(".prompt.", ".reply.")).exists()
+    )
     if not pending:
         st.info("Nothing waiting.", icon=":material/check_circle:")
         return
-    st.caption(f"{len(pending)} waiting")
-    for p in pending:
-        with st.expander(p.name, expanded=True, icon=":material/chat:"):
-            st.caption("1. Copy the prompt. 2. Paste the reply. 3. Submit.")
-            st.code(p.read_text(encoding="utf-8"), language="markdown")
-            reply = st.text_area("Paste the model's reply", key=p.name, height=200)
-            submit_col, clear_col, dismiss_col = st.columns([16, 1, 1], vertical_alignment="center")
-            if submit_col.button(
-                "Submit reply", key="b" + p.name, type="primary", icon=":material/send:", width="stretch"
-            ) and reply.strip():
-                p.with_name(p.name.replace(".prompt.", ".reply.")).write_text(reply, encoding="utf-8")
-                st.rerun()
-            with clear_col:
-                if icon_button(
-                    "Clear the pasted reply",
-                    key="clear_" + p.name,
-                ):
-                    st.session_state[p.name] = ""
+    with section_box(
+        "Pending prompts",
+        func="manual provider",
+        icon=":material/chat:",
+        lede=f"{len(pending)} waiting — copy prompt, paste reply, submit.",
+    ):
+        for p in pending:
+            with st.expander(p.name, expanded=True, icon=":material/chat:"):
+                st.caption("1. Copy the prompt. 2. Paste the reply. 3. Submit.")
+                st.code(p.read_text(encoding="utf-8"), language="markdown")
+                reply = st.text_area("Paste the model's reply", key=p.name, height=200)
+                submit_col, clear_col, dismiss_col = st.columns(
+                    [16, 1, 1], vertical_alignment="center"
+                )
+                if submit_col.button(
+                    "Submit reply",
+                    key="b" + p.name,
+                    type="primary",
+                    icon=":material/send:",
+                    width="stretch",
+                ) and reply.strip():
+                    p.with_name(p.name.replace(".prompt.", ".reply.")).write_text(
+                        reply, encoding="utf-8"
+                    )
                     st.rerun()
-            with dismiss_col:
-                if icon_button(
-                    "Remove this pending prompt without a reply",
-                    key="delete_" + p.name,
-                    icon=":material/delete:",
-                ):
-                    p.unlink(missing_ok=True)
-                    st.session_state.pop(p.name, None)
-                    st.rerun()
+                with clear_col:
+                    if icon_button(
+                        "Clear the pasted reply",
+                        key="clear_" + p.name,
+                    ):
+                        st.session_state[p.name] = ""
+                        st.rerun()
+                with dismiss_col:
+                    if icon_button(
+                        "Remove this pending prompt without a reply",
+                        key="delete_" + p.name,
+                        icon=":material/delete:",
+                    ):
+                        p.unlink(missing_ok=True)
+                        st.session_state.pop(p.name, None)
+                        st.rerun()
 
 
 def page_top_tier_screen() -> None:
@@ -2071,6 +2543,7 @@ def page_top_tier_screen() -> None:
         "Top 0.1% Screen",
         "Paste a JD and a resume (or use the active profile). Get fit, ATS coverage, and a recruiter verdict on whether it clears a top 0.1% bar.",
         ":material/military_tech:",
+        func="jt match",
     )
     st.caption(
         "Uses the Overview AI engine (GPT or Claude browser, or API keys). "
@@ -2084,8 +2557,12 @@ def page_top_tier_screen() -> None:
     upload_root = config.OUTPUT_DIR / "matches" / "_uploads"
     upload_root.mkdir(parents=True, exist_ok=True)
 
-    with st.container(border=True):
-        st.subheader("Inputs", icon=":material/input:")
+    with section_box(
+        "Inputs",
+        func="jt match --jd-file|--job-id|--resume|--profile",
+        icon=":material/input:",
+        lede="Provide a JD and either the active profile or an uploaded resume.",
+    ):
         jd_col, resume_col = st.columns(2)
         with jd_col:
             jd_text = st.text_area(
@@ -2157,71 +2634,86 @@ def page_top_tier_screen() -> None:
     latest = None
     if matches_dir.exists():
         dirs = sorted(
-            [p for p in matches_dir.iterdir() if p.is_dir() and p.name != "_uploads" and (p / "report.json").exists()],
+            [
+                p
+                for p in matches_dir.iterdir()
+                if p.is_dir() and p.name != "_uploads" and (p / "report.json").exists()
+            ],
             key=lambda p: p.name,
             reverse=True,
         )
         latest = dirs[0] if dirs else None
 
-    st.subheader("Latest report", icon=":material/assessment:")
-    if not latest:
-        st.info("No screens yet. Run one above.", icon=":material/info:")
+    with section_box(
+        "Latest report",
+        func="output/matches/*/report.json",
+        icon=":material/assessment:",
+        lede="Newest completed `jt match` run.",
+    ):
+        if not latest:
+            st.info("No screens yet. Run one above.", icon=":material/info:")
+        else:
+            data = json.loads((latest / "report.json").read_text(encoding="utf-8"))
+            screen = data.get("screen") or {}
+            m1, m2, m3, m4 = st.columns(4)
+            m1.metric("Tier", screen.get("tier_label") or "—", border=True)
+            m2.metric("Fit", f"{data.get('fit_score', 0):.0f}/100", border=True)
+            m3.metric("ATS", f"{data.get('ats_coverage', 0):.0f}%", border=True)
+            m4.metric("Band", data.get("screen_band") or "—", border=True)
+            if screen.get("verdict"):
+                st.markdown(screen["verdict"])
+            if data.get("percentile") is not None:
+                st.caption(f"Fit percentile vs analyzed jobs: {data['percentile']:.0f}th")
+
+            c1, c2 = st.columns(2)
+            with c1:
+                st.markdown("**Strengths**")
+                st.write("\n".join(f"- {x}" for x in (screen.get("strengths") or [])) or "_none_")
+                st.markdown("**Gaps vs top 0.1% bar**")
+                st.write("\n".join(f"- {x}" for x in (screen.get("gaps_vs_bar") or [])) or "_none_")
+            with c2:
+                st.markdown("**ATS risks**")
+                st.write("\n".join(f"- {x}" for x in (screen.get("ats_risks") or [])) or "_none_")
+                st.markdown("**Priority actions**")
+                st.write(
+                    "\n".join(f"- {x}" for x in (screen.get("priority_actions") or [])) or "_none_"
+                )
+
+            with st.expander("Keywords and profile gaps", icon=":material/key:"):
+                st.write(
+                    "Present: " + (", ".join(data.get("keywords_present") or []) or "(none)")
+                )
+                st.write(
+                    "Missing: " + (", ".join(data.get("keywords_missing") or []) or "(none)")
+                )
+                gaps = data.get("gaps") or []
+                if gaps:
+                    st.dataframe(pd.DataFrame(gaps), hide_index=True, width="stretch")
+
+            md_path = latest / "report.md"
+            if md_path.exists():
+                st.download_button(
+                    "Download report.md",
+                    data=md_path.read_text(encoding="utf-8"),
+                    file_name=f"match_{latest.name}.md",
+                    mime="text/markdown",
+                    icon=":material/download:",
+                )
+            st.caption(f"Saved under `{latest}`")
+
+    with section_box("Background tasks", func="jt … (subprocess)", icon=":material/pending:"):
         tasks_panel()
-        return
-
-    data = json.loads((latest / "report.json").read_text(encoding="utf-8"))
-    screen = data.get("screen") or {}
-    m1, m2, m3, m4 = st.columns(4)
-    m1.metric("Tier", screen.get("tier_label") or "—", border=True)
-    m2.metric("Fit", f"{data.get('fit_score', 0):.0f}/100", border=True)
-    m3.metric("ATS", f"{data.get('ats_coverage', 0):.0f}%", border=True)
-    m4.metric("Band", data.get("screen_band") or "—", border=True)
-    if screen.get("verdict"):
-        st.markdown(screen["verdict"])
-    if data.get("percentile") is not None:
-        st.caption(f"Fit percentile vs analyzed jobs: {data['percentile']:.0f}th")
-
-    c1, c2 = st.columns(2)
-    with c1:
-        st.markdown("**Strengths**")
-        st.write("\n".join(f"- {x}" for x in (screen.get("strengths") or [])) or "_none_")
-        st.markdown("**Gaps vs top 0.1% bar**")
-        st.write("\n".join(f"- {x}" for x in (screen.get("gaps_vs_bar") or [])) or "_none_")
-    with c2:
-        st.markdown("**ATS risks**")
-        st.write("\n".join(f"- {x}" for x in (screen.get("ats_risks") or [])) or "_none_")
-        st.markdown("**Priority actions**")
-        st.write("\n".join(f"- {x}" for x in (screen.get("priority_actions") or [])) or "_none_")
-
-    with st.expander("Keywords and profile gaps", icon=":material/key:"):
-        st.write("Present: " + (", ".join(data.get("keywords_present") or []) or "(none)"))
-        st.write("Missing: " + (", ".join(data.get("keywords_missing") or []) or "(none)"))
-        gaps = data.get("gaps") or []
-        if gaps:
-            st.dataframe(pd.DataFrame(gaps), hide_index=True, width="stretch")
-
-    md_path = latest / "report.md"
-    if md_path.exists():
-        st.download_button(
-            "Download report.md",
-            data=md_path.read_text(encoding="utf-8"),
-            file_name=f"match_{latest.name}.md",
-            mime="text/markdown",
-            icon=":material/download:",
-        )
-    st.caption(f"Saved under `{latest}`")
-    tasks_panel()
 
 
 NAV_LABELS = {
     "Overview": ":material/space_dashboard: Overview",
-    "Top 0.1% Screen": ":material/military_tech: Top 0.1%",
+    "Top 0.1% Screen": ":material/military_tech: Match",
     "Samples": ":material/school: Teaching",
     "Jobs": ":material/work: Jobs",
     "Tracker": ":material/conversion_path: Tracker",
     "Profile": ":material/person: Profiles",
     "Market and gaps": ":material/query_stats: Market",
-    "LLM log": ":material/history: Activity",
+    "LLM log": ":material/history: LLM log",
     "Manual replies": ":material/forum: Manual",
 }
 PAGES = {

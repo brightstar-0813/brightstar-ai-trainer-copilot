@@ -1,0 +1,211 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Resume editor</title>
+  <style>
+    :root {
+      --bar: #f3f4f6;
+      --ink: #111827;
+      --line: #d1d5db;
+      --accent: #1f4e79;
+    }
+    * { box-sizing: border-box; }
+    html, body {
+      margin: 0;
+      padding: 0;
+      background: #e5e7eb;
+      color: var(--ink);
+      font-family: Segoe UI, Calibri, Arial, sans-serif;
+    }
+    .chrome {
+      position: sticky;
+      top: 0;
+      z-index: 5;
+      background: var(--bar);
+      border-bottom: 1px solid var(--line);
+      padding: 8px 10px;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      align-items: center;
+    }
+    .group {
+      display: inline-flex;
+      gap: 4px;
+      align-items: center;
+      padding-right: 8px;
+      border-right: 1px solid var(--line);
+    }
+    .group:last-child { border-right: none; }
+    button {
+      appearance: none;
+      border: 1px solid var(--line);
+      background: #fff;
+      color: var(--ink);
+      border-radius: 4px;
+      padding: 4px 10px;
+      font-size: 13px;
+      cursor: pointer;
+      min-height: 28px;
+    }
+    button:hover { border-color: #9ca3af; }
+    button.primary {
+      background: var(--accent);
+      border-color: var(--accent);
+      color: #fff;
+      font-weight: 600;
+    }
+    button.ghost { background: transparent; }
+    .hint {
+      margin-left: auto;
+      font-size: 12px;
+      color: #6b7280;
+    }
+    .page-wrap {
+      padding: 16px;
+      display: flex;
+      justify-content: center;
+    }
+    #page {
+      width: min(8.5in, 100%);
+      min-height: 11in;
+      background: #fff;
+      box-shadow: 0 8px 24px rgba(0,0,0,.12);
+      outline: none;
+    }
+    #page:focus-within {
+      box-shadow: 0 8px 28px rgba(31,78,121,.22);
+    }
+    /* Keep section titles locked visually */
+    #page h2[contenteditable="false"] {
+      cursor: default;
+      user-select: none;
+    }
+  </style>
+</head>
+<body>
+  <div class="chrome">
+    <div class="group">
+      <button type="button" data-cmd="bold" title="Bold"><b>B</b></button>
+      <button type="button" data-cmd="italic" title="Italic"><i>I</i></button>
+      <button type="button" data-cmd="underline" title="Underline"><u>U</u></button>
+    </div>
+    <div class="group">
+      <button type="button" data-cmd="insertUnorderedList" title="Bullets">• List</button>
+      <button type="button" data-cmd="undo" title="Undo">Undo</button>
+      <button type="button" data-cmd="redo" title="Redo">Redo</button>
+    </div>
+    <div class="group">
+      <button type="button" class="primary" id="save">Save</button>
+      <button type="button" class="ghost" id="cancel">Cancel</button>
+    </div>
+    <div class="hint">Click the page and type — headings stay fixed</div>
+  </div>
+  <div class="page-wrap">
+    <div id="page" spellcheck="true"></div>
+  </div>
+
+  <script>
+    function sendMessageToStreamlitClient(type, data) {
+      const out = Object.assign({ isStreamlitMessage: true, type: type }, data);
+      window.parent.postMessage(out, "*");
+    }
+    function init() {
+      sendMessageToStreamlitClient("streamlit:componentReady", { apiVersion: 1 });
+    }
+    function setFrameHeight(height) {
+      sendMessageToStreamlitClient("streamlit:setFrameHeight", { height: height });
+    }
+    function sendDataToPython(value) {
+      sendMessageToStreamlitClient("streamlit:setComponentValue", { value: value });
+    }
+
+    let editId = "";
+    let sourceDoc = null;
+    const page = document.getElementById("page");
+
+    function lockStructure(root) {
+      root.querySelectorAll("h2").forEach((el) => {
+        el.setAttribute("contenteditable", "false");
+      });
+      root.querySelectorAll("h1").forEach((el) => {
+        el.setAttribute("contenteditable", "true");
+      });
+    }
+
+    function extractDocumentHtml() {
+      if (!sourceDoc) {
+        return "<!doctype html><html><body>" + page.innerHTML + "</body></html>";
+      }
+      const clone = sourceDoc.cloneNode(true);
+      const body = clone.querySelector("body");
+      if (body) {
+        // Preserve styles/head; replace body with edited page contents.
+        // Edited page contains the original body children (header + .body).
+        body.innerHTML = page.innerHTML;
+        body.removeAttribute("contenteditable");
+        body.querySelectorAll("[contenteditable]").forEach((el) => {
+          el.removeAttribute("contenteditable");
+        });
+      }
+      return "<!doctype html>\n" + clone.documentElement.outerHTML;
+    }
+
+    function renderArgs(args) {
+      editId = (args && args.edit_id) || "";
+      const html = (args && args.html) || "";
+      const parser = new DOMParser();
+      sourceDoc = parser.parseFromString(html, "text/html");
+      const srcBody = sourceDoc.body;
+      page.innerHTML = srcBody ? srcBody.innerHTML : html;
+      page.setAttribute("contenteditable", "true");
+      lockStructure(page);
+      // Copy inline styles from original so the page looks like the resume.
+      const styleTags = sourceDoc.querySelectorAll("style");
+      document.querySelectorAll("style[data-resume]").forEach((n) => n.remove());
+      styleTags.forEach((st) => {
+        const copy = document.createElement("style");
+        copy.setAttribute("data-resume", "1");
+        copy.textContent = st.textContent;
+        document.head.appendChild(copy);
+      });
+      requestAnimationFrame(() => {
+        setFrameHeight(Math.max(720, document.body.scrollHeight + 20));
+      });
+    }
+
+    document.querySelectorAll("button[data-cmd]").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        const cmd = btn.getAttribute("data-cmd");
+        document.execCommand(cmd, false, null);
+        page.focus();
+      });
+    });
+
+    document.getElementById("save").addEventListener("click", () => {
+      sendDataToPython({
+        action: "save",
+        edit_id: editId,
+        html: extractDocumentHtml(),
+      });
+    });
+    document.getElementById("cancel").addEventListener("click", () => {
+      sendDataToPython({
+        action: "cancel",
+        edit_id: editId,
+        html: "",
+      });
+    });
+
+    window.addEventListener("message", (event) => {
+      if (!event.data || event.data.type !== "streamlit:render") return;
+      renderArgs(event.data.args || {});
+    });
+
+    init();
+    setFrameHeight(760);
+  </script>
+</body>
+</html>

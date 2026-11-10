@@ -48,7 +48,36 @@ def test_list_styles_includes_ats_modern():
     catalog = list_styles()
     ids = {t["id"] for t in catalog["templates"]}
     assert "ats-modern" in ids
+    assert "skills-first" in ids
+    assert "modern-sans" in ids
+    assert "executive-navy" in ids
+    assert "orange-banner" in ids
+    assert "date-rail" in ids
     assert resolve_style_id("nope") == "ats-modern"
+    assert resolve_style_id("brief-grid") == "skills-first"
+
+
+def test_skills_first_uses_inverted_bars_and_table():
+    html = render_styled_html(_sample_resume(), style_id="skills-first", accent_id="navy")
+    assert 'data-style="skills-first"' in html
+    assert "background: var(--accent)" in html
+    assert 'class="skills-table"' in html
+    assert "<th scope=\"col\">Category</th>" in html
+
+
+def test_orange_banner_uses_bar_headers():
+    html = render_styled_html(_sample_resume(), style_id="orange-banner", accent_id="bronze")
+    assert 'data-style="orange-banner"' in html
+    assert 'class="bar"' in html
+    assert "<span>Professional Experience</span>" in html
+    assert 'class="plain"' in html
+    assert 'class="skills-table"' in html
+
+
+def test_modern_sans_keeps_left_rail():
+    html = render_styled_html(_sample_resume(), style_id="modern-sans", accent_id="teal")
+    assert 'data-style="modern-sans"' in html
+    assert "border-left: 3px solid var(--accent)" in html
 
 
 def test_styled_html_keeps_teaching_structure():
@@ -73,7 +102,8 @@ def test_styled_html_keeps_teaching_structure():
 
 def test_style_swap_does_not_change_sections():
     a = render_styled_html(_sample_resume(), style_id="ats-modern")
-    b = render_styled_html(_sample_resume(), style_id="executive-navy")
+    b = render_styled_html(_sample_resume(), style_id="modern-sans")
+    c = render_styled_html(_sample_resume(), style_id="skills-first")
     for label in (
         "Professional Summary",
         "Skills",
@@ -82,8 +112,12 @@ def test_style_swap_does_not_change_sections():
         "Education",
         "Certifications",
     ):
+        assert label in a
+        assert label in b
+        assert label in c
         assert f"<h2>{label}</h2>" in a
         assert f"<h2>{label}</h2>" in b
+        assert f"<h2>{label}</h2>" in c
 
 
 def test_flat_skills_are_bucketed_into_categories():

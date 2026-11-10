@@ -62,12 +62,15 @@ const CSS = `
     .contact {
       margin: 0 0 6px;
       font-size: 10pt;
-      color: #e8772e;
+      color: #333;
     }
 
-    .contact .tag { font-weight: 700; }
+    .contact .tag {
+      font-weight: 700;
+      color: #8a5a2b;
+    }
 
-    .contact a, .contact a:visited { color: #e8772e; text-decoration: none; }
+    .contact a, .contact a:visited { color: #333; text-decoration: none; }
 
     h2.plain {
       margin: 11px 0 4px;
@@ -75,7 +78,7 @@ const CSS = `
       font-weight: 700;
       letter-spacing: 0.6px;
       text-transform: uppercase;
-      color: #e8772e;
+      color: #8a5a2b;
     }
 
     h2.bar {
@@ -90,7 +93,7 @@ const CSS = `
     }
 
     h2.bar span {
-      background: #e8772e;
+      background: #8a5a2b;
       padding: 3px 12px 3px 8px;
     }
 
@@ -98,7 +101,7 @@ const CSS = `
       content: "";
       flex: 1;
       height: 2px;
-      background: #e8772e;
+      background: #8a5a2b;
     }
 
     p { margin: 0 0 4px; }
@@ -153,7 +156,7 @@ const CSS = `
       padding: 2px 8px 2px 0;
       vertical-align: top;
       text-align: left;
-      border-bottom: 1px solid #f3d3c0;
+      border-bottom: 1px solid #e8d5c4;
     }
 
     .skills-table th {
@@ -161,8 +164,8 @@ const CSS = `
       font-weight: 700;
       letter-spacing: 0.4px;
       text-transform: uppercase;
-      color: #e8772e;
-      border-bottom: 1.5px solid #e8772e;
+      color: #8a5a2b;
+      border-bottom: 1.5px solid #8a5a2b;
     }
 
     .skills-table .skill-cat {
@@ -284,7 +287,7 @@ function renderEducation(education) {
 export const orangeBannerTemplate = {
   id: "orange-banner",
   label: "9 · Orange Banner",
-  description: "Calibri · gray name · orange bars for Experience and Education.",
+  description: "Calibri · gray name · bronze bars for Experience and Education.",
   render(data) {
     const name = String(data.name || "Resume").trim() || "Resume";
     const headline = String(data.headline || "").trim();

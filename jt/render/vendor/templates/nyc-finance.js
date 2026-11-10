@@ -34,7 +34,7 @@ const CSS = `
     .banner {
       background: #0b1f3a;
       color: #f4f6f8;
-      padding: 11mm 16mm 9mm;
+      padding: 10mm 16mm 3mm;
     }
 
     h1 {
@@ -65,7 +65,7 @@ const CSS = `
       text-decoration: none;
     }
 
-    .body { padding: 8mm 16mm 14mm; }
+    .body { padding: 3mm 16mm 12mm; }
 
     section { margin: 0 0 8px; }
 

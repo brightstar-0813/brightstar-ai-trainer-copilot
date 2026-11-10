@@ -130,7 +130,7 @@ const CSS = `
     aside .edu-year { margin-top: 1px; font-weight: 700; color: #f5c542; }
 
     .main {
-      padding: 14mm 12mm 14mm 11mm;
+      padding: 6mm 12mm 14mm 11mm;
     }
 
     .main h2 {

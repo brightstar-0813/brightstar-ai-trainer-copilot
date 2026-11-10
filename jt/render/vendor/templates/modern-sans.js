@@ -33,7 +33,7 @@ const CSS = `
 
     .resume { width: 100%; }
 
-    header.top { margin: 0 0 4px; }
+    header.top { margin: 0 0 2px; }
 
     h1 {
       margin: 0;

@@ -483,9 +483,23 @@ def icon_button(
     return st.button("", **kwargs)
 
 
-@st.fragment(run_every=3)
-def tasks_panel() -> None:
-    procs = st.session_state.get("procs", {})
+def _bg_procs() -> dict:
+    return st.session_state.setdefault("procs", {})
+
+
+def _running_bg_labels(prefix: str | None = None) -> list[str]:
+    labels: list[str] = []
+    for label, proc in _bg_procs().items():
+        if proc.poll() is not None:
+            continue
+        if prefix is not None and not label.startswith(prefix):
+            continue
+        labels.append(label)
+    return labels
+
+
+def _render_tasks_panel() -> None:
+    procs = _bg_procs()
     if not procs:
         st.caption("No background tasks yet.")
         return
@@ -518,11 +532,32 @@ def tasks_panel() -> None:
 
 
 @st.fragment(run_every=3)
-def sidebar_activity() -> None:
-    procs = st.session_state.get("procs", {})
-    running = [label for label, proc in procs.items() if proc.poll() is None]
+def _tasks_panel_live() -> None:
+    """Poll task logs only while a background job is running; remount once it ends."""
+    _render_tasks_panel()
+    if not _running_bg_labels():
+        st.rerun()
+
+
+def tasks_panel() -> None:
+    if _running_bg_labels():
+        _tasks_panel_live()
+    else:
+        _render_tasks_panel()
+
+
+@st.fragment(run_every=3)
+def _sidebar_activity_live() -> None:
+    running = _running_bg_labels()
     if running:
         st.caption("Running: " + ", ".join(running))
+        return
+    st.rerun()
+
+
+def sidebar_activity() -> None:
+    if _running_bg_labels():
+        _sidebar_activity_live()
 
 
 def load_jobs_df() -> pd.DataFrame:
@@ -1340,27 +1375,30 @@ def _ensure_suggestion_pdf(folder: Path) -> Path | None:
 
 
 @st.fragment(run_every=3)
-def teaching_workspace() -> None:
-    """Live result pane: progress, saved models, coach notes, and the resume."""
-    procs = st.session_state.get("procs", {})
-    running = [label for label, proc in procs.items() if proc.poll() is None]
-    if any(label.startswith("suggest ") for label in running):
-        st.info(
-            "Notes and the resume will show here when it finishes.",
-            icon=":material/progress_activity:",
-            title="Building the teaching model",
-        )
-    for label, proc in procs.items():
-        code = proc.poll()
-        if code is None:
-            state, icon = "running", ":material/progress_activity:"
-        elif code == 0:
-            state, icon = "done", ":material/check_circle:"
-        else:
-            state, icon = f"failed (exit {code})", ":material/error:"
+def _suggest_watchdog() -> None:
+    """Poll suggest progress only while it runs; remount once when it finishes."""
+    running = _running_bg_labels(prefix="suggest ")
+    if not running:
+        st.rerun()
+        return
+    st.info(
+        "Notes and the resume will show here when it finishes.",
+        icon=":material/progress_activity:",
+        title="Building the teaching model",
+    )
+    for label in running:
         log = LOGS / f"{label.replace(' ', '_').replace('/', '_')}.log"
-        with st.expander(f"{label}: {state}", expanded=code != 0, icon=icon):
-            st.code(log.read_text(encoding="utf-8", errors="ignore")[-2000:] if log.exists() else "", language="text")
+        with st.expander(f"{label}: running", expanded=True, icon=":material/progress_activity:"):
+            st.code(
+                log.read_text(encoding="utf-8", errors="ignore")[-2000:] if log.exists() else "",
+                language="text",
+            )
+
+
+def teaching_workspace() -> None:
+    """Event-driven result pane. Remounts on UI events; polls only while suggest runs."""
+    if _running_bg_labels(prefix="suggest "):
+        _suggest_watchdog()
 
     dirs = _suggestion_dirs()
     if not dirs:

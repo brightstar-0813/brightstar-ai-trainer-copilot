@@ -33,8 +33,8 @@ const CSS = `
     .resume { width: 100%; }
 
     header.top {
-      margin: 0 0 7px;
-      padding-bottom: 5px;
+      margin: 0 0 3px;
+      padding-bottom: 3px;
       border-bottom: 2px solid #1f2937;
     }
 

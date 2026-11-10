@@ -29,12 +29,13 @@ _BASE_CSS = """
     line-height: 1.32;
   }
   .resume { width: 100%; background: #fff; }
-  .body { padding: var(--body-pad, 2mm 14mm 12mm); }
+  /* Keep header→summary tight: no stacked top/bottom pads between them. */
+  .body { padding: var(--body-pad, 0 14mm 12mm); }
   header.top, header.banner {
-    padding: var(--header-pad, 8mm 14mm 2mm);
+    padding: var(--header-pad, 6mm 14mm 0);
   }
   header.top {
-    margin-bottom: 0;
+    margin: 0;
     border-bottom: none;
   }
   header.banner {
@@ -51,14 +52,14 @@ _BASE_CSS = """
   }
   header.banner h1 { color: var(--banner-name, #fff); }
   .headline {
-    margin: 3px 0 5px;
+    margin: 2px 0 3px;
     font-size: 11pt;
     font-weight: 600;
     color: var(--headline-color, #222);
   }
   header.banner .headline { color: var(--banner-headline, #d4b56a); }
   .contact {
-    margin: 0;
+    margin: 0 0 2px;
     font-size: 9.5pt;
     color: var(--contact-color, #555);
   }
@@ -66,7 +67,7 @@ _BASE_CSS = """
   .contact a { color: inherit; }
   section { margin: 0 0 8px; }
   h2 {
-    margin: 8px 0 3px;
+    margin: 6px 0 3px;
     padding: 0 0 2px;
     font-size: var(--h2-size, 10.5pt);
     font-weight: 700;
@@ -75,6 +76,7 @@ _BASE_CSS = """
     color: var(--accent, #1f4e79);
     border-bottom: var(--h2-rule, 2px solid var(--accent, #1f4e79));
   }
+  .body > section:first-child { margin-top: 0; }
   .body > section:first-child h2 { margin-top: 0; }
   .body p,
   .body li,
@@ -188,8 +190,8 @@ STYLES: list[ResumeStyle] = [
             "--banner-headline": "#d4b56a",
             "--h2-rule": "2px solid #d4b56a",
             "--size": "10.2pt",
-            "--header-pad": "10mm 14mm 3mm",
-            "--body-pad": "3mm 14mm 12mm",
+            "--header-pad": "8mm 14mm 2mm",
+            "--body-pad": "2mm 14mm 12mm",
         },
     ),
     ResumeStyle(
@@ -249,7 +251,8 @@ STYLES: list[ResumeStyle] = [
             "--banner-headline": "#ffe08a",
             "--h2-rule": "2px solid #f5c542",
             "--size": "10pt",
-            "--header-pad": "12mm 14mm 10mm",
+            "--header-pad": "10mm 14mm 2mm",
+            "--body-pad": "2mm 14mm 12mm",
         },
     ),
     ResumeStyle(
@@ -526,7 +529,7 @@ _STYLE_CHROME_CSS = {
     font-weight: 600;
   }
   h2.plain {
-    margin: 10px 0 4px;
+    margin: 4px 0 4px;
     padding: 0;
     border-bottom: none;
     color: var(--accent);

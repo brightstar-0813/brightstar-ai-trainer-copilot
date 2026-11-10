@@ -34,7 +34,7 @@ const CSS = `
     .resume { width: 100%; }
 
     header.top {
-      margin: 0 0 4px;
+      margin: 0 0 2px;
       text-align: center;
     }
 

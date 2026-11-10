@@ -73,7 +73,7 @@ const CSS = `
     .contact a, .contact a:visited { color: #333; text-decoration: none; }
 
     h2.plain {
-      margin: 11px 0 4px;
+      margin: 6px 0 4px;
       font-size: 11pt;
       font-weight: 700;
       letter-spacing: 0.6px;

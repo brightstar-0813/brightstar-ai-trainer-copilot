@@ -100,6 +100,17 @@ def test_styled_html_keeps_teaching_structure():
     assert "header.top" in html and "border-bottom: none" in html
 
 
+def test_header_to_summary_gap_is_tight():
+    """No stacked multi-mm pads between contact line and first section."""
+    html = render_styled_html(_sample_resume(), style_id="ats-modern")
+    assert ".body { padding: var(--body-pad, 0 14mm 12mm); }" in html
+    assert "padding: var(--header-pad, 6mm 14mm 0);" in html
+    assert ".body > section:first-child h2 { margin-top: 0; }" in html
+    navy = render_styled_html(_sample_resume(), style_id="executive-navy")
+    assert "--header-pad: 10mm 14mm 2mm;" in navy
+    assert "14mm 10mm" not in navy.split(":root")[1].split("}")[0]
+
+
 def test_style_swap_does_not_change_sections():
     a = render_styled_html(_sample_resume(), style_id="ats-modern")
     b = render_styled_html(_sample_resume(), style_id="modern-sans")

@@ -16,113 +16,119 @@ from ..schemas import ResumeContent
 
 DEFAULT_STYLE_ID = "ats-modern"
 
+# Bump when header/section spacing or project heading labels change so saved
+# teaching-model HTML is rewritten on open.
+RESUME_LAYOUT_VERSION = 3
+RESUME_LAYOUT_MARKER = f"/* jt-resume-layout:{RESUME_LAYOUT_VERSION} */"
+
 # Shared layout for content sections (independent of Bid bot template.render).
-_BASE_CSS = """
-  * { box-sizing: border-box; }
-  html { color-scheme: light; background: #fff; }
-  html, body {
+_BASE_CSS = f"""
+  {RESUME_LAYOUT_MARKER}
+  * {{ box-sizing: border-box; }}
+  html {{ color-scheme: light; background: #fff; }}
+  html, body {{
     margin: 0; padding: 0;
     background: #fff;
     color: var(--ink, #111);
     font-family: var(--font, Calibri, Arial, Helvetica, sans-serif);
     font-size: var(--size, 10.5pt);
     line-height: 1.32;
-  }
-  .resume { width: 100%; background: #fff; }
+  }}
+  .resume {{ width: 100%; background: #fff; }}
   /* Keep header→summary tight: no stacked top/bottom pads between them. */
-  .body { padding: var(--body-pad, 0 14mm 12mm); }
-  header.top, header.banner {
+  .body {{ padding: var(--body-pad, 0 14mm 12mm); }}
+  header.top, header.banner {{
     padding: var(--header-pad, 6mm 14mm 0);
-  }
-  header.top {
+  }}
+  header.top {{
     margin: 0;
     border-bottom: none;
-  }
-  header.banner {
+  }}
+  header.banner {{
     background: var(--banner-bg, #0b1f3a);
     color: var(--banner-ink, #f4f6f8);
-  }
-  h1 {
+  }}
+  h1 {{
     margin: 0;
     font-size: var(--name-size, 20pt);
     font-weight: 700;
     line-height: 1.1;
     color: var(--name-color, var(--accent, #1f4e79));
     letter-spacing: 0.2px;
-  }
-  header.banner h1 { color: var(--banner-name, #fff); }
-  .headline {
-    margin: 2px 0 3px;
+  }}
+  header.banner h1 {{ color: var(--banner-name, #fff); }}
+  .headline {{
+    margin: 2px 0 0;
     font-size: 11pt;
     font-weight: 600;
     color: var(--headline-color, #222);
-  }
-  header.banner .headline { color: var(--banner-headline, #d4b56a); }
-  .contact {
-    margin: 0 0 2px;
+  }}
+  header.banner .headline {{ color: var(--banner-headline, #d4b56a); }}
+  .contact {{
+    margin: 2px 0 0;
     font-size: 9.5pt;
     color: var(--contact-color, #555);
-  }
-  header.banner .contact { color: var(--banner-contact, #c5d0dc); }
-  .contact a { color: inherit; }
-  section { margin: 0 0 8px; }
-  h2 {
-    margin: 6px 0 3px;
-    padding: 0 0 2px;
+  }}
+  header.banner .contact {{ color: var(--banner-contact, #c5d0dc); }}
+  .contact a {{ color: inherit; }}
+  section {{ margin: 0 0 4px; }}
+  h2 {{
+    margin: 4px 0 2px;
+    padding: 0 0 1px;
     font-size: var(--h2-size, 10.5pt);
     font-weight: 700;
     letter-spacing: var(--h2-track, 0.8px);
     text-transform: uppercase;
     color: var(--accent, #1f4e79);
     border-bottom: var(--h2-rule, 2px solid var(--accent, #1f4e79));
-  }
-  .body > section:first-child { margin-top: 0; }
-  .body > section:first-child h2 { margin-top: 0; }
+  }}
+  .body > section:first-child {{ margin-top: 0; }}
+  .body > section:first-child h2 {{ margin-top: 0; }}
   .body p,
   .body li,
   .skill-row,
-  .project-item { text-align: justify; }
-  p { margin: 0 0 4px; }
-  .skills { margin: 0; }
-  .skills-stack { margin: 0; }
-  .skill-row { margin: 0 0 4px; font-size: 0.98em; }
-  .skill-cat {
+  .project-item {{ text-align: justify; }}
+  p {{ margin: 0 0 4px; }}
+  .skills {{ margin: 0; }}
+  .skills-stack {{ margin: 0; }}
+  .skill-row {{ margin: 0 0 4px; font-size: 0.98em; }}
+  .skill-cat {{
     font-weight: 700;
     color: var(--accent, #1f4e79);
     margin-right: 4px;
-  }
-  .skill-items { color: var(--ink, #111); }
-  .row {
+  }}
+  .skill-items {{ color: var(--ink, #111); }}
+  .row {{
     display: flex;
     justify-content: space-between;
     gap: 12px;
     align-items: baseline;
     font-weight: 700;
     margin-top: 6px;
-  }
-  .row .role { font-weight: 700; }
-  .row .dates {
+  }}
+  .row .role {{ font-weight: 700; }}
+  .row .dates {{
     flex: 0 0 auto;
     white-space: nowrap;
     font-weight: 600;
     color: var(--muted, #4a5a6c);
     font-size: 9.5pt;
-  }
-  .company {
+  }}
+  .company {{
     margin: 0 0 1px;
     font-weight: 600;
     color: var(--ink, #111);
-  }
-  .sub {
+  }}
+  .sub {{
     margin: 0 0 2px;
     font-style: italic;
     color: var(--muted, #4a5a6c);
     font-size: 9.5pt;
-  }
-  ul { margin: 2px 0 0; padding-left: 16px; }
-  li { margin: 0 0 2px; }
-  .project-item { margin: 0 0 4px; }
-  @page { size: Letter; margin: 0.5in 0.55in; }
+  }}
+  ul {{ margin: 2px 0 0; padding-left: 16px; }}
+  li {{ margin: 0 0 2px; }}
+  .project-item {{ margin: 0 0 4px; }}
+  @page {{ size: Letter; margin: 0.5in 0.55in; }}
 """
 
 
@@ -190,8 +196,8 @@ STYLES: list[ResumeStyle] = [
             "--banner-headline": "#d4b56a",
             "--h2-rule": "2px solid #d4b56a",
             "--size": "10.2pt",
-            "--header-pad": "8mm 14mm 2mm",
-            "--body-pad": "2mm 14mm 12mm",
+            "--header-pad": "8mm 14mm 0",
+            "--body-pad": "3mm 14mm 12mm",
         },
     ),
     ResumeStyle(
@@ -251,8 +257,8 @@ STYLES: list[ResumeStyle] = [
             "--banner-headline": "#ffe08a",
             "--h2-rule": "2px solid #f5c542",
             "--size": "10pt",
-            "--header-pad": "10mm 14mm 2mm",
-            "--body-pad": "2mm 14mm 12mm",
+            "--header-pad": "10mm 14mm 0",
+            "--body-pad": "3mm 14mm 12mm",
         },
     ),
     ResumeStyle(
@@ -487,7 +493,7 @@ _STYLE_CHROME_CSS = {
     color: #fff;
     border-bottom: none;
     padding: 3px 8px;
-    margin: 8px 0 4px;
+    margin: 4px 0 2px;
   }
   .skills-table {
     width: 100%;

@@ -1421,6 +1421,16 @@ def teaching_workspace() -> None:
         resume.caption("A file you can download and a preview.")
         return
 
+    # One-shot sweep so Saved/Download never keep Selected Projects or old gaps.
+    if not st.session_state.get("_teaching_layout_swept"):
+        refreshed = sm.refresh_all_suggestion_resumes()
+        st.session_state["_teaching_layout_swept"] = True
+        if refreshed:
+            st.toast(
+                f"Updated resume layout on {len(refreshed)} teaching model"
+                f"{'s' if len(refreshed) != 1 else ''}"
+            )
+
     labels = {d.name: _suggestion_label(d) for d in dirs}
     names = [d.name for d in dirs]
     pending = st.session_state.get("suggestion_pending")

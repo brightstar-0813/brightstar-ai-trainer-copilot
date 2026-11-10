@@ -27,8 +27,8 @@ def render_html(
 
 def _heading(doc: Document, text: str) -> None:
     p = doc.add_paragraph()
-    p.paragraph_format.space_before = Pt(8)
-    p.paragraph_format.space_after = Pt(2)
+    p.paragraph_format.space_before = Pt(4)
+    p.paragraph_format.space_after = Pt(1)
     run = p.add_run(text.upper())
     run.bold = True
     run.font.size = Pt(10.5)
@@ -68,10 +68,16 @@ def render_docx(r: ResumeContent, path: Path) -> None:
     run.bold = True
     run.font.size = Pt(20)
     p.paragraph_format.space_after = Pt(0)
-    doc.add_paragraph(r.headline).paragraph_format.space_after = Pt(0)
-    c = doc.add_paragraph(r.contact)
-    if c.runs:
-        c.runs[0].font.size = Pt(9)
+    if (r.headline or "").strip():
+        hp = doc.add_paragraph(r.headline)
+        hp.paragraph_format.space_before = Pt(0)
+        hp.paragraph_format.space_after = Pt(0)
+    if (r.contact or "").strip():
+        c = doc.add_paragraph(r.contact)
+        c.paragraph_format.space_before = Pt(0)
+        c.paragraph_format.space_after = Pt(0)
+        if c.runs:
+            c.runs[0].font.size = Pt(9)
 
     if r.summary:
         _heading(doc, "Professional Summary")

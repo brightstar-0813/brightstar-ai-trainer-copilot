@@ -989,10 +989,18 @@ _OLD_PROJECTS_HEADING = ("Selected Projects", "SELECTED PROJECTS", "Selected Pro
 # Pre-tightening layout markers still present in older resume.html files.
 _OLD_LAYOUT_MARKERS = (
     ".body { padding: 10mm",
+    "var(--body-pad, 10mm",
+    "var(--header-pad, 10mm 14mm 8mm)",
+    "var(--header-pad, 10mm 14mm 2mm)",
+    "var(--header-pad, 8mm 14mm 2mm)",
     "padding: 10mm 14mm 12mm",
+    "padding: 10mm 14mm 14mm",
     "padding: 8mm 14mm 8mm",
     "padding: 6mm 14mm 8mm",
+    "14mm 14mm",
 )
+
+
 def _rewrite_selected_projects_text(text: str) -> str:
     """Replace legacy project-section labels without touching other content."""
     out = text
@@ -1023,6 +1031,8 @@ def _scrub_stale_resume_text(text: str) -> str:
 
 def _suggestion_resume_is_stale(folder: Path) -> bool:
     """True when saved teaching-model resume still has old labels or loose header gap."""
+    from ..render.styles import RESUME_LAYOUT_MARKER
+
     folder = Path(folder)
     texts: list[str] = []
     html_path = folder / "resume.html"
@@ -1042,6 +1052,8 @@ def _suggestion_resume_is_stale(folder: Path) -> bool:
     if any(old in blob for old in _TEACHING_CONTACT_PLACEHOLDERS):
         return True
     html = texts[0] if html_path.exists() and texts else ""
+    if html and RESUME_LAYOUT_MARKER not in html:
+        return True
     if html and any(marker in html for marker in _OLD_LAYOUT_MARKERS):
         return True
     if html and ".body > section:first-child h2 { margin-top: 0; }" not in html:
@@ -1049,11 +1061,57 @@ def _suggestion_resume_is_stale(folder: Path) -> bool:
     return False
 
 
+def refresh_all_suggestion_resumes(root: Path | None = None) -> list[str]:
+    """Rewrite every stale teaching-model resume under output/suggestions.
+
+    Returns folder names that were refreshed.
+    """
+    root = Path(root) if root is not None else (config.OUTPUT_DIR / "suggestions")
+    if not root.exists():
+        return []
+    changed: list[str] = []
+    for folder in sorted(p for p in root.iterdir() if p.is_dir()):
+        if not (folder / "suggestion.json").exists() and not (folder / "resume.html").exists():
+            continue
+        if refresh_suggestion_resume_if_stale(folder):
+            changed.append(folder.name)
+    return changed
+
+
+def _rerender_resume_from_saved_html(folder: Path) -> bool:
+    """Rebuild DOCX/HTML/PDF from resume.html when suggestion.json cannot load."""
+    from ..llm.prefs import preferred_resume_accent, preferred_resume_template
+    from ..render.html_parse import ResumeHtmlParseError, parse_resume_html
+
+    folder = Path(folder)
+    html_path = folder / "resume.html"
+    if not html_path.exists():
+        return False
+    raw = _scrub_stale_resume_text(html_path.read_text(encoding="utf-8"))
+    try:
+        resume = parse_resume_html(raw)
+    except (ResumeHtmlParseError, Exception):
+        return False
+    template_id = preferred_resume_template()
+    accent_id = preferred_resume_accent() or None
+    styled = render_html(resume, template_id=template_id, accent_id=accent_id)
+    html_path.write_text(styled, encoding="utf-8")
+    render_docx(resume, folder / "resume.docx")
+    render_pdf(styled, folder / "resume.pdf")
+    md_path = folder / "profile.md"
+    if md_path.exists():
+        md = md_path.read_text(encoding="utf-8")
+        new_md = _scrub_stale_resume_text(md)
+        if new_md != md:
+            md_path.write_text(new_md, encoding="utf-8")
+    return True
+
+
 def refresh_suggestion_resume_if_stale(folder: Path) -> bool:
     """Rewrite teaching-model resume files when labels or header spacing are stale.
 
     Prefers a full re-render from suggestion.json. If that JSON no longer validates,
-    falls back to in-place heading rewrites on HTML/Markdown (+ PDF refresh).
+    rebuilds from resume.html content, then falls back to in-place text scrubbing.
 
     Returns True when artifacts were rewritten.
     """
@@ -1070,6 +1128,8 @@ def refresh_suggestion_resume_if_stale(folder: Path) -> bool:
             return True
         except Exception:
             pass
+    if _rerender_resume_from_saved_html(folder):
+        return True
     changed = False
     if html_path.exists():
         html = html_path.read_text(encoding="utf-8")

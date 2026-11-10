@@ -370,16 +370,20 @@ def test_suggest_sample_teaches_with_real_company_and_name(env):
     assert samples.refresh_suggestion_resume_if_stale(stale_dir) is False
 
     # Old header→summary padding must also force a re-render.
+    from jt.render.styles import RESUME_LAYOUT_MARKER
+
     loose = refreshed.replace(
         ".body { padding: var(--body-pad, 0 14mm 12mm); }",
-        ".body { padding: 10mm 14mm 12mm; }",
+        ".body { padding: var(--body-pad, 10mm 14mm 14mm); }",
         1,
-    )
+    ).replace(RESUME_LAYOUT_MARKER, "/* jt-resume-layout:0 */", 1)
     (stale_dir / "resume.html").write_text(loose, encoding="utf-8")
     assert samples.refresh_suggestion_resume_if_stale(stale_dir) is True
     tight = (stale_dir / "resume.html").read_text(encoding="utf-8")
-    assert ".body { padding: 10mm 14mm 12mm; }" not in tight
+    assert "var(--body-pad, 10mm 14mm 14mm)" not in tight
+    assert RESUME_LAYOUT_MARKER in tight
     assert "Representative projects" in tight
+    assert "Selected Projects" not in tight
 
     # Teaching-only contact note must be stripped from downloadable HTML.
     noted = tight.replace(
@@ -391,6 +395,21 @@ def test_suggest_sample_teaches_with_real_company_and_name(env):
     assert samples.refresh_suggestion_resume_if_stale(stale_dir) is True
     cleaned = (stale_dir / "resume.html").read_text(encoding="utf-8")
     assert "Virtual candidate — teaching example" not in cleaned
+
+    # Invalid suggestion.json must still refresh via resume.html parse fallback.
+    broken_html = cleaned.replace(RESUME_LAYOUT_MARKER, "/* jt-resume-layout:0 */", 1).replace(
+        "Representative projects", "Selected Projects", 1
+    )
+    (stale_dir / "resume.html").write_text(broken_html, encoding="utf-8")
+    json_path = stale_dir / "suggestion.json"
+    raw = json.loads(json_path.read_text(encoding="utf-8"))
+    raw["teaching_notes"] = (raw.get("teaching_notes") or [])[:1]
+    json_path.write_text(json.dumps(raw), encoding="utf-8")
+    assert samples.refresh_suggestion_resume_if_stale(stale_dir) is True
+    recovered = (stale_dir / "resume.html").read_text(encoding="utf-8")
+    assert RESUME_LAYOUT_MARKER in recovered
+    assert "Selected Projects" not in recovered
+    assert "Representative projects" in recovered
 
     missing = suggestion.model_copy(deep=True)
     missing.sample.experience[0].company = "Siemens"

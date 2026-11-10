@@ -37,11 +37,12 @@ Project root: `D:\Work\JobHunting\00_AI Trainer\AI Trainer Copiot`. Use `.\.venv
   sector differs — not a company-industry CV with only the latest title changed.
   Without a title, peers follow the company's industry (`company_domain`).
   JD-targeted runs write to a `*-jd` folder; with a title, industry framing still follows the role.
-  When the JD needs more than a master's, the model should use PhD/postdoc/professional doctorate
-  education from a real high-ranking university, listed as separate degree entries with the prior
-  bachelor's/master's ladder (and a second field degree when dual expertise is needed). Licenses and
-  certifications should be dense when real credentials exist for the domain (typically 1–3 licenses
-  plus 2–4 specialty certs, or 3–6 vendor/professional certs) — not a single token credential.
+  Invented teaching models always use a doctoral education ladder (bachelor's + master's + PhD, or
+  the domain's professional doctorate) from real high-ranking universities as separate degree
+  entries — not BS/MS alone (add a second field degree when dual expertise is needed). Provided-seed
+  mode still keeps only the seeded schools. Licenses and certifications should be dense when real
+  credentials exist for the domain (typically 1–3 licenses plus 2–4 specialty certs, or 3–6
+  vendor/professional certs) — not a single token credential.
   Resume tailor keeps every real degree in the master profile but surfaces only job-relevant ones.
 
 ## Rules

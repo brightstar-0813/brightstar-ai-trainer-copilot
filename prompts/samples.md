@@ -14,7 +14,7 @@ Most common requirements:
 
 Build a complete profile with:
 - a realistic, believable career history (3-4 roles) whose progression makes the archetype's credibility obvious, with bullets that carry numbers and named tools;
-- education as multiple degree entries when the path warrants it (bachelor's + master's + PhD is normal for doctoral archetypes; dual fields get a second relevant degree). Degrees only; do not put a license or a certification here. If the archetype is PhD-level or the market prefers doctoral credentials, use a PhD (or equivalent) from a high-ranking research university — do not stop at a master's when the bar is higher;
+- education as multiple degree entries: bachelor's + master's + PhD (or domain professional doctorate) from high-ranking research universities — do not stop at a master's. Dual fields get a second relevant bachelor's or master's as its own entry. Degrees only; do not put a license or a certification here;
 - `licenses`: occupational licenses that actually exist for this archetype (government or licensing board). Licensed archetypes should list the full gating set strong peers hold (typically 1–3), not a single token license. Leave empty only when none exist;
 - `certifications`: professional or vendor certifications that actually exist for this archetype. Prefer a dense, plausible stack (typically 3–6 when the domain has real cert paths; 2–4 specialty/board certs alongside licenses). Do not stop at one when more exist. Leave empty only when none exist. Leave `licenses_certs` empty;
 - 2-3 projects or publications that prove the skill directly (including any AI-training, evaluation or red-teaming work);

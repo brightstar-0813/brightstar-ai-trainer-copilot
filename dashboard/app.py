@@ -1413,7 +1413,7 @@ def teaching_workspace() -> None:
         career.caption("US high-ranking employers, with the last company as the current role.")
         education.markdown("**Education**")
         education.caption(
-            "Real high-ranking schools; multiple degrees OK (BS/MS/PhD ladder; PhD+ when the bar needs it)."
+            "Real high-ranking schools; invented models use a BS/MS/PhD (or domain doctorate) ladder."
         )
         notes.markdown("**Coach notes**")
         notes.caption("What to include, the best option, and how to teach it.")

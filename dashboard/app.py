@@ -1222,6 +1222,9 @@ _SUGGEST_TEXT_KEYS = (
     "suggest_location",
     "suggest_headline",
     "suggest_about",
+    "suggest_email",
+    "suggest_phone",
+    "suggest_linkedin",
     "suggest_notes",
     "suggest_jd",
 )
@@ -1367,6 +1370,9 @@ def _collect_profile_seed() -> dict:
         "location": str(st.session_state.get("suggest_location") or "").strip(),
         "headline": str(st.session_state.get("suggest_headline") or "").strip(),
         "about": str(st.session_state.get("suggest_about") or "").strip(),
+        "email": str(st.session_state.get("suggest_email") or "").strip(),
+        "phone": str(st.session_state.get("suggest_phone") or "").strip(),
+        "linkedin": str(st.session_state.get("suggest_linkedin") or "").strip(),
         "experience": experience,
         "education": education,
         "licenses": licenses,
@@ -1441,6 +1447,18 @@ def page_samples() -> None:
             "Headline (optional)",
             placeholder="Senior controls engineer | safety-rated automation",
             key="suggest_headline",
+        )
+        email_col, phone_col, li_col = st.columns(3, vertical_alignment="bottom")
+        email_col.text_input(
+            "Email (optional)", placeholder="name@example.com", key="suggest_email"
+        )
+        phone_col.text_input(
+            "Phone (optional)", placeholder="+1 (555) 010-2048", key="suggest_phone"
+        )
+        li_col.text_input(
+            "LinkedIn (optional)",
+            placeholder="https://www.linkedin.com/in/…",
+            key="suggest_linkedin",
         )
         st.text_area(
             "About (optional)",

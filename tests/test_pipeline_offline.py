@@ -250,6 +250,7 @@ def test_suggest_sample_teaches_with_real_company_and_name(env):
     assert suggestion.sample.experience[0].company == "Fanuc"
     assert suggestion.sample.experience[1].company == "Siemens"
     assert any("state engineering" in n for n in samples.generic_org_notes(suggestion))
+    assert paths["dir"].endswith("jane-example-fanuc")
     profile = Path(paths["profile"]).read_text(encoding="utf-8")
     assert "How to teach it" in profile and "Georgia Institute of Technology" in profile
     assert Path(paths["docx"]).stat().st_size > 1000
@@ -259,6 +260,7 @@ def test_suggest_sample_teaches_with_real_company_and_name(env):
     assert "total_relevant_experience" not in html
     assert "Additional" not in html
     resume = samples.sample_to_resume(suggestion)
+    assert resume.contact == "Virtual candidate — teaching example"
     assert resume.additional == []
     assert len(resume.skills) <= 18
     assert "years: 12" not in " ".join(resume.additional)
@@ -271,9 +273,10 @@ def test_suggest_sample_teaches_with_real_company_and_name(env):
     assert fixed.persona_name == "Jane Example"
     assert fixed.sample.experience[0].company == "Fanuc"
 
-    aimed, _ = samples.suggest_sample(
+    aimed, aimed_paths = samples.suggest_sample(
         "Jane Example", "Fanuc", jd="Need a PE-licensed controls engineer for robot cells.")
     assert aimed.target_kind == "job_description"
+    assert aimed_paths["dir"].endswith("jane-example-fanuc-jd")
     assert "Fanuc" in FakeBC.calls[-1]
     assert "PE-licensed" in FakeBC.calls[-1]
     assert "real universities" in FakeBC.calls[-1]
@@ -284,6 +287,9 @@ def test_profile_seed_normalizes_and_reaches_prompt(env):
         "location": "  Chicago, IL ",
         "headline": "",
         "about": "Senior automation lead.",
+        "email": " jane@example.com ",
+        "phone": "+1 (555) 010-2048",
+        "linkedin": "https://www.linkedin.com/in/jane-example/",
         "experience": [
             {"company": "Siemens", "title": "Controls engineer", "bullets": "Line A\nLine B", "start": "2014"},
             {"company": "", "title": ""},
@@ -296,15 +302,21 @@ def test_profile_seed_normalizes_and_reaches_prompt(env):
     })
     assert seed["location"] == "Chicago, IL"
     assert "headline" not in seed
+    assert seed["email"] == "jane@example.com"
     assert seed["experience"][0]["bullets"] == ["Line A", "Line B"]
     assert seed["skills"] == ["PLC", "safety PLCs", "robot commissioning"]
     assert len(seed["experience"]) == 1
+    assert samples.contact_line_from_seed(seed) == (
+        "Chicago, IL | jane@example.com | +1 (555) 010-2048 | "
+        "https://www.linkedin.com/in/jane-example/"
+    )
 
     text = samples.format_profile_seed_for_prompt(seed)
     assert "Prior experience: Controls engineer, Siemens" in text
     assert "License: PE, NCEES" in text
+    assert "Email: jane@example.com" in text
 
-    samples.suggest_sample(
+    suggestion, _ = samples.suggest_sample(
         "Jane Example",
         "Fanuc",
         profile_seed=seed,
@@ -314,6 +326,8 @@ def test_profile_seed_normalizes_and_reaches_prompt(env):
     assert "Siemens" in prompt
     assert "Georgia Institute of Technology" in prompt
     assert "safety PLCs" in prompt
+    assert "jane@example.com" in suggestion.contact
+    assert "jane@example.com" in samples.sample_to_resume(suggestion).contact
 
 
 def test_profile_optimize_samples_and_compare(env):

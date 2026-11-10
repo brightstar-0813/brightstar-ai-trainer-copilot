@@ -204,7 +204,7 @@ def sample_to_resume(s: SuggestedBenchmark) -> ResumeContent:
     return ResumeContent(
         name=s.persona_name,
         headline=sample.headline,
-        contact="Virtual candidate — teaching example",
+        contact=(s.contact or "").strip() or "Virtual candidate — teaching example",
         summary=sample.about,
         skills=flat,
         skill_groups=[g.model_dump() for g in groups],
@@ -288,6 +288,20 @@ def _clean_mapping_list(items: object, fields: tuple[str, ...], *, list_fields: 
     return cleaned
 
 
+def contact_line_from_seed(seed: dict | None) -> str:
+    """Build a resume contact line from optional seed contact fields."""
+    data = seed if isinstance(seed, dict) else {}
+    if data.get("contact"):
+        return str(data["contact"]).strip()
+    parts = [
+        _clean_text(data.get("location")),
+        _clean_text(data.get("email")),
+        _clean_text(data.get("phone")),
+        _clean_text(data.get("linkedin")),
+    ]
+    return " | ".join(p for p in parts if p)
+
+
 def normalize_profile_seed(raw: dict | None) -> dict:
     """Optional LinkedIn-style seed facts that guide the teaching model."""
     data = raw if isinstance(raw, dict) else {}
@@ -295,6 +309,10 @@ def normalize_profile_seed(raw: dict | None) -> dict:
         "location": _clean_text(data.get("location")),
         "headline": _clean_text(data.get("headline")),
         "about": _clean_text(data.get("about")),
+        "email": _clean_text(data.get("email")),
+        "phone": _clean_text(data.get("phone")),
+        "linkedin": _clean_text(data.get("linkedin")),
+        "contact": _clean_text(data.get("contact")),
         "experience": _clean_mapping_list(
             data.get("experience"),
             ("company", "title", "start", "end", "location", "bullets"),
@@ -327,6 +345,14 @@ def format_profile_seed_for_prompt(seed: dict) -> str:
         lines.append(f"Location: {seed['location']}")
     if seed.get("headline"):
         lines.append(f"Headline: {seed['headline']}")
+    if seed.get("email"):
+        lines.append(f"Email: {seed['email']}")
+    if seed.get("phone"):
+        lines.append(f"Phone: {seed['phone']}")
+    if seed.get("linkedin"):
+        lines.append(f"LinkedIn: {seed['linkedin']}")
+    if seed.get("contact"):
+        lines.append(f"Contact: {seed['contact']}")
     if seed.get("about"):
         lines.append(f"About:\n{seed['about']}")
     for role in seed.get("experience") or []:
@@ -399,6 +425,7 @@ def suggest_sample(
     })
     suggestion.target_kind = "job_description" if jd else "company_domain"
     suggestion = guard_suggestion(suggestion, name, company)
+    suggestion.contact = contact_line_from_seed(seed) or suggestion.contact
     return suggestion, write_suggestion_artifacts(suggestion)
 
 
@@ -406,7 +433,10 @@ def write_suggestion_artifacts(suggestion: SuggestedBenchmark) -> dict[str, str]
     """Persist suggestion.json, profile.md, and resume files under output/suggestions/."""
     name = suggestion.persona_name or suggestion.for_candidate or "candidate"
     company = suggestion.last_company or "company"
-    out = config.OUTPUT_DIR / "suggestions" / _slug(name, company)
+    slug_parts = [name, company]
+    if (suggestion.target_kind or "").strip() == "job_description":
+        slug_parts.append("jd")
+    out = config.OUTPUT_DIR / "suggestions" / _slug(*slug_parts)
     out.mkdir(parents=True, exist_ok=True)
     (out / "suggestion.json").write_text(suggestion.model_dump_json(indent=2), encoding="utf-8")
     profile_md = out / "profile.md"

@@ -417,6 +417,10 @@ class SuggestedBenchmark(BaseModel):
         description="Why this career, education, licenses, certifications and projects would rank in the top 0.1% for the target. "
         "When a job description was given, map its main requirements onto sections of the sample.")
     persona_name: str = Field(description="Virtual candidate name. Use the name that was provided.")
+    contact: str = Field(
+        default="",
+        description="Optional resume contact line from the seed (location | email | phone | links).",
+    )
     teaching_notes: list[TeachingNote] = Field(
         min_length=6,
         description="At least one note each for headline, experience, education, licenses, certifications, and projects.",

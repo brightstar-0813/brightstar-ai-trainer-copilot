@@ -1029,10 +1029,20 @@ def _scrub_stale_resume_text(text: str) -> str:
     return _strip_teaching_contact_text(_rewrite_selected_projects_text(text))
 
 
+def _resume_layout_marker() -> str:
+    """Current HTML layout marker; tolerates Streamlit partial module reloads."""
+    from ..render import styles as style_mod
+
+    version = getattr(style_mod, "RESUME_LAYOUT_VERSION", 3)
+    return getattr(
+        style_mod,
+        "RESUME_LAYOUT_MARKER",
+        f"/* jt-resume-layout:{version} */",
+    )
+
+
 def _suggestion_resume_is_stale(folder: Path) -> bool:
     """True when saved teaching-model resume still has old labels or loose header gap."""
-    from ..render.styles import RESUME_LAYOUT_MARKER
-
     folder = Path(folder)
     texts: list[str] = []
     html_path = folder / "resume.html"
@@ -1052,7 +1062,7 @@ def _suggestion_resume_is_stale(folder: Path) -> bool:
     if any(old in blob for old in _TEACHING_CONTACT_PLACEHOLDERS):
         return True
     html = texts[0] if html_path.exists() and texts else ""
-    if html and RESUME_LAYOUT_MARKER not in html:
+    if html and _resume_layout_marker() not in html:
         return True
     if html and any(marker in html for marker in _OLD_LAYOUT_MARKERS):
         return True

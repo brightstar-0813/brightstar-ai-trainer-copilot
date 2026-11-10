@@ -1227,6 +1227,7 @@ _SUGGEST_TEXT_KEYS = (
     "suggest_linkedin",
     "suggest_notes",
     "suggest_jd",
+    "suggest_profile_dump",
 )
 
 
@@ -1240,6 +1241,8 @@ def _ensure_suggest_lists() -> None:
             st.session_state[key] = []
     if "suggest_jd_file_nonce" not in st.session_state:
         st.session_state["suggest_jd_file_nonce"] = 0
+    if "suggest_profile_file_nonce" not in st.session_state:
+        st.session_state["suggest_profile_file_nonce"] = 0
 
 
 def _add_suggest_entry(list_key: str) -> None:
@@ -1418,6 +1421,93 @@ def _clear_suggest_form() -> None:
                 st.session_state.pop(widget_key, None)
         st.session_state[list_key] = []
     st.session_state["suggest_jd_file_nonce"] = int(st.session_state.get("suggest_jd_file_nonce") or 0) + 1
+    st.session_state["suggest_profile_file_nonce"] = (
+        int(st.session_state.get("suggest_profile_file_nonce") or 0) + 1
+    )
+
+
+def _wipe_suggest_section(list_key: str, widget_prefixes: tuple[str, ...]) -> None:
+    for eid in list(st.session_state.get(list_key) or []):
+        for prefix in widget_prefixes:
+            st.session_state.pop(f"{prefix}{eid}", None)
+    st.session_state[list_key] = []
+
+
+def _apply_suggest_profile_dump(text: str) -> str:
+    """Parse a LinkedIn-style dump into the Teaching models form. Returns a short status."""
+    parsed = sm.parse_profile_dump(text)
+    if not parsed:
+        return "empty"
+    seed = parsed.get("profile_seed") or {}
+    for key, value in (
+        ("suggest_name", parsed.get("name")),
+        ("suggest_company", parsed.get("last_company")),
+        ("suggest_title", parsed.get("title")),
+        ("suggest_location", seed.get("location")),
+        ("suggest_headline", seed.get("headline")),
+        ("suggest_email", seed.get("email")),
+        ("suggest_phone", seed.get("phone")),
+        ("suggest_linkedin", seed.get("linkedin")),
+        ("suggest_about", seed.get("about")),
+    ):
+        if value:
+            st.session_state[key] = value
+    notes = sm.merge_notes(
+        str(st.session_state.get("suggest_notes") or ""),
+        str(parsed.get("notes") or ""),
+    )
+    if notes:
+        st.session_state["suggest_notes"] = notes
+    st.session_state["suggest_profile_dump"] = text.strip()
+
+    _wipe_suggest_section(
+        "suggest_experience_ids",
+        (
+            "suggest_exp_company_",
+            "suggest_exp_title_",
+            "suggest_exp_start_",
+            "suggest_exp_end_",
+            "suggest_exp_location_",
+            "suggest_exp_bullets_",
+        ),
+    )
+    exp_ids: list[str] = []
+    for role in seed.get("experience") or []:
+        eid = _new_entry_id()
+        exp_ids.append(eid)
+        st.session_state[f"suggest_exp_company_{eid}"] = role.get("company") or ""
+        st.session_state[f"suggest_exp_title_{eid}"] = role.get("title") or ""
+        st.session_state[f"suggest_exp_start_{eid}"] = role.get("start") or ""
+        st.session_state[f"suggest_exp_end_{eid}"] = role.get("end") or ""
+        st.session_state[f"suggest_exp_location_{eid}"] = role.get("location") or ""
+        bullets = role.get("bullets") or []
+        st.session_state[f"suggest_exp_bullets_{eid}"] = "\n".join(bullets)
+    st.session_state["suggest_experience_ids"] = exp_ids
+
+    _wipe_suggest_section(
+        "suggest_education_ids",
+        (
+            "suggest_edu_school_",
+            "suggest_edu_degree_",
+            "suggest_edu_field_",
+            "suggest_edu_start_",
+            "suggest_edu_end_",
+            "suggest_edu_details_",
+        ),
+    )
+    edu_ids: list[str] = []
+    for edu in seed.get("education") or []:
+        eid = _new_entry_id()
+        edu_ids.append(eid)
+        st.session_state[f"suggest_edu_school_{eid}"] = edu.get("school") or ""
+        st.session_state[f"suggest_edu_degree_{eid}"] = edu.get("degree") or ""
+        st.session_state[f"suggest_edu_field_{eid}"] = edu.get("field") or ""
+        st.session_state[f"suggest_edu_start_{eid}"] = edu.get("start") or ""
+        st.session_state[f"suggest_edu_end_{eid}"] = edu.get("end") or ""
+        details = edu.get("details") or []
+        st.session_state[f"suggest_edu_details_{eid}"] = "\n".join(details)
+    st.session_state["suggest_education_ids"] = edu_ids
+    return "ok"
 
 
 def page_samples() -> None:
@@ -1428,6 +1518,54 @@ def page_samples() -> None:
     )
     _ensure_suggest_lists()
     with st.container(border=True):
+        st.subheader("Profile dump", icon=":material/upload_file:")
+        st.caption(
+            "Paste or upload a LinkedIn-style profile .txt, then Fill form. "
+            "Name, contact, roles, school, and company blurbs are mapped into the fields below."
+        )
+        st.text_area(
+            "Paste profile text",
+            height=140,
+            placeholder=(
+                "Alan Jeong\nVice President Operations | FP&A\nNew York, United States\n"
+                "…\nEDUCATION\n…\nPROFESSIONAL EXPERIENCE\n…"
+            ),
+            key="suggest_profile_dump",
+            label_visibility="collapsed",
+        )
+        profile_file = st.file_uploader(
+            "Upload a profile text file",
+            type=["txt", "md"],
+            help="txt or md. Used when the paste box is empty, or click Fill after uploading.",
+            key=f"suggest_profile_file_{st.session_state['suggest_profile_file_nonce']}",
+        )
+        fill_clicked = st.button(
+            "Fill form from profile",
+            icon=":material/playlist_add_check:",
+            type="secondary",
+            key="suggest_fill_from_profile",
+        )
+        if fill_clicked:
+            dump = str(st.session_state.get("suggest_profile_dump") or "").strip()
+            if not dump and profile_file is not None:
+                dump = profile_file.getvalue().decode("utf-8", errors="replace").strip()
+            if not dump:
+                st.warning("Paste or upload a profile text first.", icon=":material/warning:")
+            else:
+                status = _apply_suggest_profile_dump(dump)
+                if status == "empty":
+                    st.warning("Could not read that profile text.", icon=":material/warning:")
+                else:
+                    st.session_state["suggest_profile_file_nonce"] = (
+                        int(st.session_state.get("suggest_profile_file_nonce") or 0) + 1
+                    )
+                    st.success(
+                        "Form filled from profile dump. Review fields, then Build.",
+                        icon=":material/check_circle:",
+                    )
+                    st.rerun()
+
+        st.divider()
         st.subheader("Who and where", icon=":material/badge:")
         name_col, company_col, title_col = st.columns(3, vertical_alignment="bottom")
         name = name_col.text_input(
@@ -1607,7 +1745,7 @@ def page_samples() -> None:
                 key="suggest_build",
             )
             cleared = icon_button(
-                "Clear name, company, title, notes, JD, profile sections, and upload",
+                "Clear profile dump, name, company, title, notes, JD, sections, and uploads",
                 key="suggest_clear",
             )
     if cleared:
@@ -1617,19 +1755,39 @@ def page_samples() -> None:
         jd_text = (jd or "").strip()
         if not jd_text and jd_file is not None:
             jd_text = jd_file.getvalue().decode("utf-8", errors="replace").strip()
-        if not (name or "").strip() or not (company or "").strip():
-            st.error("Add a name and a real last company.", icon=":material/error:")
+        dump = str(st.session_state.get("suggest_profile_dump") or "").strip()
+        if not dump and profile_file is not None:
+            dump = profile_file.getvalue().decode("utf-8", errors="replace").strip()
+        parsed_dump = sm.parse_profile_dump(dump) if dump else {}
+        name_val = (name or "").strip() or str(parsed_dump.get("name") or "").strip()
+        company_val = (
+            (company or "").strip() or str(parsed_dump.get("last_company") or "").strip()
+        )
+        title_val = (title or "").strip() or str(parsed_dump.get("title") or "").strip()
+        if not name_val or not company_val:
+            st.error(
+                "Add a name and a real last company (or Fill form from a profile dump).",
+                icon=":material/error:",
+            )
         else:
             if not open_ai_session():
                 st.stop()
-            profile_seed = _collect_profile_seed()
+            profile_seed = sm.merge_profile_seed(
+                _collect_profile_seed(),
+                parsed_dump.get("profile_seed"),
+            )
+            notes_val = sm.merge_notes(
+                (notes or "").strip(),
+                str(parsed_dump.get("notes") or ""),
+                dump,
+            )
             req = config.DATA_DIR / "suggestion_request.yaml"
             req.parent.mkdir(parents=True, exist_ok=True)
             payload = {
-                "name": name.strip(),
-                "last_company": company.strip(),
-                "title": (title or "").strip(),
-                "notes": (notes or "").strip(),
+                "name": name_val,
+                "last_company": company_val,
+                "title": title_val,
+                "notes": notes_val,
                 "jd": jd_text,
             }
             if profile_seed:
@@ -1638,8 +1796,8 @@ def page_samples() -> None:
                 yaml.safe_dump(payload, allow_unicode=True, sort_keys=False),
                 encoding="utf-8",
             )
-            run_bg(f"suggest {company.strip()}", "samples", "suggest", "--request", str(req))
-            st.session_state["suggestion_pending"] = sm._slug(name.strip(), company.strip())
+            run_bg(f"suggest {company_val}", "samples", "suggest", "--request", str(req))
+            st.session_state["suggestion_pending"] = sm._slug(name_val, company_val)
 
     with st.expander("Recover from ChatGPT JSON (timeout)", icon=":material/content_paste:"):
         st.caption(

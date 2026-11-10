@@ -336,6 +336,233 @@ def normalize_profile_seed(raw: dict | None) -> dict:
     return {k: v for k, v in seed.items() if v}
 
 
+_EMAIL_RE = re.compile(r"\b[A-Z0-9._%+\-]+@[A-Z0-9.\-]+\.[A-Z]{2,}\b", re.IGNORECASE)
+_PHONE_RE = re.compile(
+    r"(?:\+?\d{1,3}[\s\-.]*)?(?:\(?\d{2,4}\)?[\s\-.]*)?\d{3}[\s\-.]?\d{3,4}(?:[\s\-.]?\d{3,4})?"
+)
+_LINKEDIN_RE = re.compile(r"https?://(?:www\.)?linkedin\.com/in/[A-Za-z0-9\-_%/]+", re.IGNORECASE)
+_BIRTH_RE = re.compile(r"^\d{4}([./]\d{1,2}){0,2}([./][Xx\d]{1,2})?$")
+_DATE_RANGE_RE = re.compile(
+    r"^((?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\.?\s+\d{4}|\d{4})"
+    r"\s*[-–—]\s*"
+    r"((?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\.?\s+\d{4}|\d{4}|Present|Current)$",
+    re.IGNORECASE,
+)
+_ROLE_LINE_RE = re.compile(r"^(?P<title>.+?)\s+[-–—]\s+(?P<company>.+)$")
+_SECTION_RE = re.compile(
+    r"^(EDUCATION|PROFESSIONAL EXPERIENCE|EXPERIENCE|WORK EXPERIENCE|"
+    r"COMPANIES['’]? KEY INFORMATION|COMPANY KEY INFORMATION|COMPANIES)\s*$",
+    re.IGNORECASE,
+)
+_RULE_LINE_RE = re.compile(r"^[\W_]{3,}$")
+
+
+def _split_profile_sections(text: str) -> dict[str, str]:
+    """Split a LinkedIn-style dump into header + named sections."""
+    lines = [ln.strip() for ln in (text or "").replace("\r\n", "\n").replace("\r", "\n").split("\n")]
+    sections: dict[str, list[str]] = {"header": []}
+    current = "header"
+    for line in lines:
+        if _RULE_LINE_RE.match(line or ""):
+            continue
+        match = _SECTION_RE.match(line or "")
+        if match:
+            label = match.group(1).strip().lower()
+            if label.startswith("educ"):
+                current = "education"
+            elif "compan" in label:
+                current = "companies"
+            else:
+                current = "experience"
+            sections.setdefault(current, [])
+            continue
+        sections.setdefault(current, []).append(line)
+    return {key: "\n".join(vals).strip() for key, vals in sections.items() if any(v.strip() for v in vals)}
+
+
+def _parse_experience_block(block: str) -> list[dict[str, str]]:
+    roles: list[dict[str, str]] = []
+    lines = [ln.strip() for ln in (block or "").split("\n") if ln.strip()]
+    i = 0
+    while i < len(lines):
+        line = lines[i]
+        role_match = _ROLE_LINE_RE.match(line)
+        if not role_match:
+            i += 1
+            continue
+        role = {
+            "title": role_match.group("title").strip(),
+            "company": role_match.group("company").strip(),
+        }
+        if i + 1 < len(lines):
+            date_match = _DATE_RANGE_RE.match(lines[i + 1])
+            if date_match:
+                role["start"] = date_match.group(1).strip()
+                role["end"] = date_match.group(2).strip()
+                i += 2
+            else:
+                i += 1
+        else:
+            i += 1
+        roles.append(role)
+    return roles
+
+
+def _parse_education_block(block: str) -> list[dict[str, str]]:
+    entries: list[dict[str, str]] = []
+    lines = [ln.strip() for ln in (block or "").split("\n") if ln.strip()]
+    i = 0
+    while i < len(lines):
+        school = lines[i]
+        if _DATE_RANGE_RE.match(school) or _EMAIL_RE.search(school) or _LINKEDIN_RE.search(school):
+            i += 1
+            continue
+        entry: dict[str, str] = {"school": school}
+        i += 1
+        if i < len(lines) and not _DATE_RANGE_RE.match(lines[i]):
+            degree_line = lines[i]
+            if "," in degree_line:
+                degree, field = degree_line.split(",", 1)
+                entry["degree"] = degree.strip()
+                entry["field"] = field.strip()
+            else:
+                entry["degree"] = degree_line.strip()
+            i += 1
+        if i < len(lines):
+            date_match = _DATE_RANGE_RE.match(lines[i])
+            if date_match:
+                entry["start"] = date_match.group(1).strip()
+                entry["end"] = date_match.group(2).strip()
+                i += 1
+        entries.append(entry)
+    return entries
+
+
+def parse_profile_dump(text: str) -> dict[str, Any]:
+    """Parse a pasted LinkedIn-style profile dump into suggest fields + profile_seed.
+
+    Best-effort offline parse for Teaching models UX. Unknown prose (company blurbs)
+    lands in ``notes``. Returns only non-empty keys.
+    """
+    raw = (text or "").strip()
+    if not raw:
+        return {}
+    sections = _split_profile_sections(raw)
+    header_lines = [ln.strip() for ln in (sections.get("header") or "").split("\n") if ln.strip()]
+
+    email_match = _EMAIL_RE.search(raw)
+    email = email_match.group(0) if email_match else ""
+    li_match = _LINKEDIN_RE.search(raw)
+    linkedin = li_match.group(0).rstrip("/") if li_match else ""
+    phone = ""
+    for line in header_lines:
+        digits = re.sub(r"\D", "", line)
+        if len(digits) >= 10 and ("+" in line or _PHONE_RE.search(line)):
+            phone = line
+            break
+
+    skip = {p.lower() for p in (email, linkedin, phone) if p}
+    identity: list[str] = []
+    for line in header_lines:
+        key = line.lower()
+        if key in skip or _EMAIL_RE.search(line) or _LINKEDIN_RE.search(line):
+            continue
+        digits = re.sub(r"\D", "", line)
+        if phone and line == phone:
+            continue
+        if len(digits) >= 10 and ("+" in line or "(" in line):
+            continue
+        if _BIRTH_RE.match(line):
+            continue
+        identity.append(line)
+
+    name = identity[0] if identity else ""
+    headline = ""
+    location = ""
+    rest = identity[1:]
+    if rest:
+        # Prefer an explicit location-looking line (comma or country/state cue).
+        loc_idx = next(
+            (
+                i
+                for i, line in enumerate(rest)
+                if "," in line or re.search(r"\b(United States|USA|UK|Canada)\b", line, re.I)
+            ),
+            None,
+        )
+        if loc_idx is not None:
+            location = rest[loc_idx]
+            head_candidates = rest[:loc_idx] + rest[loc_idx + 1 :]
+        else:
+            head_candidates = rest
+        if head_candidates:
+            headline = head_candidates[0]
+
+    experience = _parse_experience_block(sections.get("experience") or "")
+    education = _parse_education_block(sections.get("education") or "")
+    title = ""
+    last_company = ""
+    if experience:
+        title = experience[0].get("title") or ""
+        last_company = experience[0].get("company") or ""
+    elif headline and "|" in headline:
+        title = headline.split("|", 1)[0].strip()
+
+    seed = normalize_profile_seed(
+        {
+            "location": location,
+            "headline": headline,
+            "email": email,
+            "phone": phone,
+            "linkedin": linkedin,
+            "experience": experience,
+            "education": education,
+        }
+    )
+    notes = (sections.get("companies") or "").strip()
+    out: dict[str, Any] = {}
+    if name:
+        out["name"] = name
+    if last_company:
+        out["last_company"] = last_company
+    if title:
+        out["title"] = title
+    if notes:
+        out["notes"] = notes
+    if seed:
+        out["profile_seed"] = seed
+    return out
+
+
+def merge_notes(*parts: str) -> str:
+    """Join non-empty note blocks without duplicating identical text."""
+    merged: list[str] = []
+    seen: set[str] = set()
+    for part in parts:
+        text = (part or "").strip()
+        if not text:
+            continue
+        key = text.casefold()
+        if key in seen:
+            continue
+        # Skip if this block is already contained in a previous block.
+        if any(key in prev for prev in seen):
+            continue
+        seen.add(key)
+        merged.append(text)
+    return "\n\n".join(merged)
+
+
+def merge_profile_seed(base: dict | None, incoming: dict | None) -> dict:
+    """Fill empty seed fields from incoming; keep existing non-empty values."""
+    current = normalize_profile_seed(base)
+    extra = normalize_profile_seed(incoming)
+    for key, value in extra.items():
+        if key not in current or current[key] in ("", [], None):
+            current[key] = value
+    return current
+
+
 def format_profile_seed_for_prompt(seed: dict) -> str:
     """Render seed facts as plain text for the sample_suggest prompt."""
     if not seed:

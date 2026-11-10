@@ -282,6 +282,53 @@ def test_suggest_sample_teaches_with_real_company_and_name(env):
     assert "real universities" in FakeBC.calls[-1]
 
 
+def test_parse_profile_dump_fills_suggest_fields(env):
+    dump = """
+Alan Jeong
+Vice President Operations | Financial Planning and Analysis
+1982.9.X
+New York, United States
++1 (669) 223-1191
+imalanjeong@gmail.com
+https://www.linkedin.com/in/alanjeong/
+________________________________________
+EDUCATION
+Baruch College
+Master of Business Administration (MBA), Accounting and Finance
+2008 — 2012
+________________________________________
+PROFESSIONAL EXPERIENCE
+
+Financial Planning and Analysis - BNY
+Jun 2022 - Present
+
+Vice President Operations - EnTrust Global
+May 2006 - Jun 2022
+________________________________________
+Companies’ Key Information
+BNY is a global financial services platforms company.
+EnTrust Global is an alternative investment firm.
+""".strip()
+    parsed = samples.parse_profile_dump(dump)
+    assert parsed["name"] == "Alan Jeong"
+    assert parsed["last_company"] == "BNY"
+    assert parsed["title"] == "Financial Planning and Analysis"
+    seed = parsed["profile_seed"]
+    assert seed["location"] == "New York, United States"
+    assert seed["email"] == "imalanjeong@gmail.com"
+    assert "669" in seed["phone"]
+    assert seed["linkedin"].endswith("alanjeong")
+    assert seed["experience"][0]["company"] == "BNY"
+    assert seed["experience"][1]["company"] == "EnTrust Global"
+    assert seed["education"][0]["school"] == "Baruch College"
+    assert "Accounting and Finance" in seed["education"][0]["field"]
+    assert "BNY is a global" in parsed["notes"]
+    assert samples.merge_notes("A", "A", "B") == "A\n\nB"
+    merged = samples.merge_profile_seed({"location": "NYC"}, seed)
+    assert merged["location"] == "NYC"
+    assert merged["email"] == "imalanjeong@gmail.com"
+
+
 def test_profile_seed_normalizes_and_reaches_prompt(env):
     seed = samples.normalize_profile_seed({
         "location": "  Chicago, IL ",

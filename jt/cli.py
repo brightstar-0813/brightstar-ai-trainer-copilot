@@ -587,6 +587,11 @@ def samples_suggest(
     notes: str = typer.Option("", "--notes", help="Extra company or industry context"),
     jd: str = typer.Option("", "--jd", help="Job description. When set, the sample targets this job"),
     jd_file: Path = typer.Option(None, "--jd-file", help="Read the job description from a text file"),
+    profile_file: Path = typer.Option(
+        None,
+        "--profile-file",
+        help="LinkedIn-style profile .txt/.md dump; fills missing name/company/seed and merges into notes",
+    ),
     request: Path = typer.Option(
         None,
         "--request",
@@ -600,7 +605,12 @@ def samples_suggest(
     """
     import yaml
 
-    from .pipelines.samples import suggest_sample
+    from .pipelines.samples import (
+        merge_notes,
+        merge_profile_seed,
+        parse_profile_dump,
+        suggest_sample,
+    )
 
     data: dict = {}
     if request:
@@ -609,10 +619,25 @@ def samples_suggest(
             rprint("[red]request file must be a YAML mapping[/red]")
             raise typer.Exit(1)
         data = loaded
-    name = (name or data.get("name") or "").strip()
-    company = (company or data.get("last_company") or data.get("company") or "").strip()
-    title = title or str(data.get("title") or "")
-    notes = notes or str(data.get("notes") or "")
+    parsed: dict = {}
+    profile_dump = ""
+    if profile_file is not None:
+        profile_dump = profile_file.read_text(encoding="utf-8").strip()
+        parsed = parse_profile_dump(profile_dump)
+    name = (name or data.get("name") or parsed.get("name") or "").strip()
+    company = (
+        company
+        or data.get("last_company")
+        or data.get("company")
+        or parsed.get("last_company")
+        or ""
+    ).strip()
+    title = title or str(data.get("title") or parsed.get("title") or "")
+    notes = merge_notes(
+        str(notes or data.get("notes") or ""),
+        str(parsed.get("notes") or ""),
+        profile_dump,
+    )
     jd_text = (jd or "").strip()
     if not jd_text and jd_file:
         jd_text = jd_file.read_text(encoding="utf-8").strip()
@@ -640,6 +665,7 @@ def samples_suggest(
             )
             if key in data
         }
+    profile_seed = merge_profile_seed(profile_seed, parsed.get("profile_seed"))
     if not name or not company:
         rprint("[red]candidate name and last company are required[/red]")
         raise typer.Exit(1)

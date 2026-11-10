@@ -155,6 +155,81 @@ def _slug(*parts: str) -> str:
     return (slug[:80] or "suggestion")
 
 
+_MONTH_NAMES = {
+    "jan": 1,
+    "january": 1,
+    "feb": 2,
+    "february": 2,
+    "mar": 3,
+    "march": 3,
+    "apr": 4,
+    "april": 4,
+    "may": 5,
+    "jun": 6,
+    "june": 6,
+    "jul": 7,
+    "july": 7,
+    "aug": 8,
+    "august": 8,
+    "sep": 9,
+    "sept": 9,
+    "september": 9,
+    "oct": 10,
+    "october": 10,
+    "nov": 11,
+    "november": 11,
+    "dec": 12,
+    "december": 12,
+}
+_MONTH_ABBR = (
+    "Jan",
+    "Feb",
+    "Mar",
+    "Apr",
+    "May",
+    "Jun",
+    "Jul",
+    "Aug",
+    "Sep",
+    "Oct",
+    "Nov",
+    "Dec",
+)
+
+
+def format_month_year(value: str | None) -> str:
+    """Normalize a career date to `Mon YYYY` when a month is known.
+
+    Bare years stay bare (callers/prompt must supply months for teaching models).
+    Present/Current → Present.
+    """
+    text = (value or "").strip()
+    if not text:
+        return ""
+    low = text.casefold()
+    if low in {"present", "current", "now", "today"}:
+        return "Present"
+    named = re.fullmatch(r"([A-Za-z]+)\.?\s+((?:19|20)\d{2})", text)
+    if named:
+        month = _MONTH_NAMES.get(named.group(1).casefold())
+        if month:
+            return f"{_MONTH_ABBR[month - 1]} {named.group(2)}"
+    iso = re.fullmatch(r"((?:19|20)\d{2})-(\d{1,2})(?:-\d{1,2})?", text)
+    if iso:
+        month = int(iso.group(2))
+        if 1 <= month <= 12:
+            return f"{_MONTH_ABBR[month - 1]} {iso.group(1)}"
+    numeric = re.fullmatch(r"(\d{1,2})[/-]((?:19|20)\d{2})", text)
+    if numeric:
+        month = int(numeric.group(1))
+        if 1 <= month <= 12:
+            return f"{_MONTH_ABBR[month - 1]} {numeric.group(2)}"
+    year_only = re.fullmatch(r"((?:19|20)\d{2})", text)
+    if year_only:
+        return year_only.group(1)
+    return text
+
+
 def generic_org_notes(s: SuggestedBenchmark) -> list[str]:
     """Names that are still placeholders rather than real organisations."""
     found: list[str] = []
@@ -167,10 +242,18 @@ def generic_org_notes(s: SuggestedBenchmark) -> list[str]:
     return found
 
 
-def guard_suggestion(s: SuggestedBenchmark, candidate_name: str, last_company: str) -> SuggestedBenchmark:
-    """Use the given name as the virtual candidate and keep the last company as the latest employer."""
+def guard_suggestion(
+    s: SuggestedBenchmark,
+    candidate_name: str,
+    last_company: str,
+    title: str = "",
+) -> SuggestedBenchmark:
+    """Pin virtual name, latest employer, and optional last role on the teaching model."""
     s.for_candidate = candidate_name.strip()
     s.last_company = last_company.strip()
+    last_title = (title or "").strip()
+    if last_title:
+        s.last_title = last_title
     s.persona_name = s.for_candidate
     s.sample.label = TEACHING_LABEL
     if not s.inferred_industry.strip():
@@ -188,6 +271,11 @@ def guard_suggestion(s: SuggestedBenchmark, candidate_name: str, last_company: s
             if match_at != 0:
                 role = s.sample.experience.pop(match_at)
                 s.sample.experience.insert(0, role)
+    if last_title and s.sample.experience:
+        s.sample.experience[0].title = last_title
+    for role in s.sample.experience:
+        role.start = format_month_year(role.start)
+        role.end = format_month_year(role.end)
     return s
 
 
@@ -281,8 +369,12 @@ def apply_provided_orgs(
             ResumeRole(
                 company=company_name,
                 title=_clean_text(role.get("title")) or (model.title if model else "") or "Role",
-                start=_clean_text(role.get("start")) or (model.start if model else ""),
-                end=_clean_text(role.get("end")) or (model.end if model else ""),
+                start=format_month_year(
+                    _clean_text(role.get("start")) or (model.start if model else "")
+                ),
+                end=format_month_year(
+                    _clean_text(role.get("end")) or (model.end if model else "")
+                ),
                 location=_clean_text(role.get("location")) or (model.location if model else ""),
                 bullets=bullets or ["Contribution aligned to the target role."],
             )
@@ -349,6 +441,19 @@ def apply_provided_orgs(
 
 # Enterprise one-page density: skills after this are noise for recruiters and ATS scans.
 _RESUME_SKILL_CAP = 18
+_TEACHING_CONTACT_PLACEHOLDERS = (
+    "Virtual candidate — teaching example",
+    "Virtual candidate - teaching example",
+    "Virtual candidate – teaching example",
+)
+
+
+def _resume_contact(contact: str | None) -> str:
+    """Resume contact line; drop internal teaching-only placeholders."""
+    text = (contact or "").strip()
+    if not text or text in _TEACHING_CONTACT_PLACEHOLDERS:
+        return ""
+    return text
 
 
 def sample_to_resume(s: SuggestedBenchmark) -> ResumeContent:
@@ -368,7 +473,7 @@ def sample_to_resume(s: SuggestedBenchmark) -> ResumeContent:
     return ResumeContent(
         name=s.persona_name,
         headline=sample.headline,
-        contact=(s.contact or "").strip() or "Virtual candidate — teaching example",
+        contact=_resume_contact(s.contact),
         summary=sample.about,
         skills=flat,
         skill_groups=[g.model_dump() for g in groups],
@@ -383,7 +488,12 @@ def sample_to_resume(s: SuggestedBenchmark) -> ResumeContent:
 
 
 def suggestion_to_markdown(s: SuggestedBenchmark) -> str:
-    aimed = "the job description" if s.target_kind == "job_description" else "the last company's industry"
+    if s.target_kind == "job_description":
+        aimed = "the job description"
+    elif s.target_kind == "role_domain":
+        aimed = f"the last role{(f' ({s.last_title})' if (s.last_title or '').strip() else '')}"
+    else:
+        aimed = "the last company's industry"
     lessons = "\n".join(
         f"### {n.section}\n- Necessary: {n.necessary_information}\n- Best option: {n.best_option}\n- Teach it: {n.how_to_teach}"
         for n in s.teaching_notes
@@ -794,6 +904,7 @@ def suggest_sample(
     """Build a teaching profile and resume for a virtual candidate.
 
     The name is the virtual candidate. The last company is their latest real employer in the model.
+    When title is set, target_kind=role_domain and the whole career follows that role's domain.
     seed_mode=last_company invents peer employers/schools/creds (original teaching bar).
     seed_mode=provided locks employers/schools/creds to profile_seed; skills/bullets/projects may be generated.
     """
@@ -809,10 +920,11 @@ def suggest_sample(
         )
     md = market_data()
     # Use the configured engine (browser ChatGPT/Claude by default). models.yaml sets a long timeout.
+    title = (title or "").strip()
     suggestion = ask_json("sample_suggest", SuggestedBenchmark, {
         "name": name,
         "company": company,
-        "title": (title or "").strip(),
+        "title": title,
         "notes": (notes or "").strip(),
         "jd": jd,
         "seed_mode": mode,
@@ -822,10 +934,16 @@ def suggest_sample(
         "n_jobs": md["n_jobs"],
         "top_keywords": md["top_keywords"],
     })
-    suggestion.target_kind = "job_description" if jd else "company_domain"
-    suggestion = guard_suggestion(suggestion, name, company)
+    if jd:
+        suggestion.target_kind = "job_description"
+    elif title:
+        suggestion.target_kind = "role_domain"
+    else:
+        suggestion.target_kind = "company_domain"
+    suggestion = guard_suggestion(suggestion, name, company, title=title)
     if mode == "provided":
         suggestion = apply_provided_orgs(suggestion, seed, company)
+        suggestion = guard_suggestion(suggestion, name, company, title=title)
     suggestion.contact = contact_line_from_seed(seed) or suggestion.contact
     return suggestion, write_suggestion_artifacts(suggestion)
 
@@ -868,8 +986,13 @@ def write_suggestion_artifacts(
 
 
 _OLD_PROJECTS_HEADING = ("Selected Projects", "SELECTED PROJECTS", "Selected Project")
-
-
+# Pre-tightening layout markers still present in older resume.html files.
+_OLD_LAYOUT_MARKERS = (
+    ".body { padding: 10mm",
+    "padding: 10mm 14mm 12mm",
+    "padding: 8mm 14mm 8mm",
+    "padding: 6mm 14mm 8mm",
+)
 def _rewrite_selected_projects_text(text: str) -> str:
     """Replace legacy project-section labels without touching other content."""
     out = text
@@ -883,8 +1006,51 @@ def _rewrite_selected_projects_text(text: str) -> str:
     return out
 
 
+def _strip_teaching_contact_text(text: str) -> str:
+    """Remove teaching-only contact placeholders from saved resume/profile text."""
+    out = text
+    for old in _TEACHING_CONTACT_PLACEHOLDERS:
+        out = out.replace(f'<p class="contact">{old}</p>', "")
+        out = out.replace(f"<p class=\"contact\">{old}</p>", "")
+        out = out.replace(old, "")
+    return out
+
+
+def _scrub_stale_resume_text(text: str) -> str:
+    """Apply all in-place text fixes used when full re-render is unavailable."""
+    return _strip_teaching_contact_text(_rewrite_selected_projects_text(text))
+
+
+def _suggestion_resume_is_stale(folder: Path) -> bool:
+    """True when saved teaching-model resume still has old labels or loose header gap."""
+    folder = Path(folder)
+    texts: list[str] = []
+    html_path = folder / "resume.html"
+    md_path = folder / "profile.md"
+    docx_path = folder / "resume.docx"
+    if html_path.exists():
+        texts.append(html_path.read_text(encoding="utf-8"))
+    if md_path.exists():
+        texts.append(md_path.read_text(encoding="utf-8"))
+    if docx_path.exists():
+        from docx import Document
+
+        texts.extend(p.text for p in Document(str(docx_path)).paragraphs)
+    blob = "\n".join(texts)
+    if any(old in blob for old in _OLD_PROJECTS_HEADING) or "\n## Projects\n" in blob:
+        return True
+    if any(old in blob for old in _TEACHING_CONTACT_PLACEHOLDERS):
+        return True
+    html = texts[0] if html_path.exists() and texts else ""
+    if html and any(marker in html for marker in _OLD_LAYOUT_MARKERS):
+        return True
+    if html and ".body > section:first-child h2 { margin-top: 0; }" not in html:
+        return True
+    return False
+
+
 def refresh_suggestion_resume_if_stale(folder: Path) -> bool:
-    """Rewrite teaching-model resume files when they still use 'Selected Projects'.
+    """Rewrite teaching-model resume files when labels or header spacing are stale.
 
     Prefers a full re-render from suggestion.json. If that JSON no longer validates,
     falls back to in-place heading rewrites on HTML/Markdown (+ PDF refresh).
@@ -896,18 +1062,7 @@ def refresh_suggestion_resume_if_stale(folder: Path) -> bool:
     md_path = folder / "profile.md"
     docx_path = folder / "resume.docx"
     json_path = folder / "suggestion.json"
-    texts = []
-    if html_path.exists():
-        texts.append(html_path.read_text(encoding="utf-8"))
-    if md_path.exists():
-        texts.append(md_path.read_text(encoding="utf-8"))
-    if docx_path.exists():
-        from docx import Document
-
-        texts.extend(p.text for p in Document(str(docx_path)).paragraphs)
-    blob = "\n".join(texts)
-    stale = any(old in blob for old in _OLD_PROJECTS_HEADING) or "\n## Projects\n" in blob
-    if not stale:
+    if not _suggestion_resume_is_stale(folder):
         return False
     if json_path.exists():
         try:
@@ -918,39 +1073,57 @@ def refresh_suggestion_resume_if_stale(folder: Path) -> bool:
     changed = False
     if html_path.exists():
         html = html_path.read_text(encoding="utf-8")
-        new_html = _rewrite_selected_projects_text(html)
+        new_html = _scrub_stale_resume_text(html)
         if new_html != html:
             html_path.write_text(new_html, encoding="utf-8")
             render_pdf(new_html, folder / "resume.pdf")
             changed = True
     if md_path.exists():
         md = md_path.read_text(encoding="utf-8")
-        new_md = _rewrite_selected_projects_text(md)
+        new_md = _scrub_stale_resume_text(md)
         if new_md != md:
             md_path.write_text(new_md, encoding="utf-8")
             changed = True
-    if docx_path.exists() and _rewrite_selected_projects_docx(docx_path):
+    if docx_path.exists() and _scrub_stale_resume_docx(docx_path):
         changed = True
     return changed
 
 
-def _rewrite_selected_projects_docx(path: Path) -> bool:
-    """In-place DOCX heading rewrite when full re-render is unavailable."""
+def _scrub_stale_resume_docx(path: Path) -> bool:
+    """In-place DOCX fixes when full re-render is unavailable."""
     from docx import Document
 
     doc = Document(str(path))
     changed = False
     for para in doc.paragraphs:
-        if not any(old in para.text for old in _OLD_PROJECTS_HEADING):
+        original = para.text
+        if not (
+            any(old in original for old in _OLD_PROJECTS_HEADING)
+            or any(old in original for old in _TEACHING_CONTACT_PLACEHOLDERS)
+        ):
             continue
+        # Drop teaching-only contact paragraphs entirely.
+        if any(old in original for old in _TEACHING_CONTACT_PLACEHOLDERS) and not any(
+            old in original for old in _OLD_PROJECTS_HEADING
+        ):
+            if original.strip() in _TEACHING_CONTACT_PLACEHOLDERS or any(
+                original.strip() == old for old in _TEACHING_CONTACT_PLACEHOLDERS
+            ):
+                for run in para.runs:
+                    run.text = ""
+                changed = True
+                continue
         for run in para.runs:
-            new = _rewrite_selected_projects_text(run.text)
+            new = _scrub_stale_resume_text(run.text)
             if new != run.text:
                 run.text = new
                 changed = True
         # Paragraph text can span runs; rewrite whole paragraph if still stale.
-        if any(old in para.text for old in _OLD_PROJECTS_HEADING) and para.runs:
-            para.runs[0].text = _rewrite_selected_projects_text(para.text)
+        if (
+            any(old in para.text for old in _OLD_PROJECTS_HEADING)
+            or any(old in para.text for old in _TEACHING_CONTACT_PLACEHOLDERS)
+        ) and para.runs:
+            para.runs[0].text = _scrub_stale_resume_text(para.text)
             for run in para.runs[1:]:
                 run.text = ""
             changed = True
@@ -974,7 +1147,13 @@ def import_suggestion_json(
     company = (company or suggestion.last_company or "").strip()
     if not name or not company:
         raise ValueError("name and last_company are required (in JSON or as overrides)")
-    suggestion = guard_suggestion(suggestion, name, company)
+    suggestion = guard_suggestion(
+        suggestion,
+        name,
+        company,
+        title=(suggestion.last_title or "").strip()
+        or ((suggestion.sample.experience[0].title if suggestion.sample.experience else "") or ""),
+    )
     return suggestion, write_suggestion_artifacts(suggestion)
 
 

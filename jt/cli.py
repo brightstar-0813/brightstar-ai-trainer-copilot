@@ -581,10 +581,15 @@ def samples_suggest(
     company: str = typer.Option(
         None,
         "--company",
-        help="Real last company (prefer a US high-ranking employer); latest role and industry anchor",
+        help="Real last company (prefer a US high-ranking employer); latest employer in the model",
     ),
-    title: str = typer.Option("", "--title", help="Last title, if you know it"),
-    notes: str = typer.Option("", "--notes", help="Extra company or industry context"),
+    title: str = typer.Option(
+        "",
+        "--title",
+        help="Last role/title — when set, the whole teaching career follows this role's domain "
+        "even if the company is in another industry",
+    ),
+    notes: str = typer.Option("", "--notes", help="Extra role or industry context"),
     jd: str = typer.Option("", "--jd", help="Job description. When set, the sample targets this job"),
     jd_file: Path = typer.Option(None, "--jd-file", help="Read the job description from a text file"),
     profile_file: Path = typer.Option(
@@ -605,7 +610,8 @@ def samples_suggest(
 ) -> None:
     """Build a teaching profile and resume for a virtual candidate.
 
-    Uses the name on the model resume and the real last company as the latest role.
+    Uses the name on the model resume and the real last company as the latest employer.
+    When --title is set, peers/creds/skills and every role's scope follow that role domain.
     seed_mode=last_company invents US high-ranking peers; seed_mode=provided locks orgs to the seed.
     """
     import yaml

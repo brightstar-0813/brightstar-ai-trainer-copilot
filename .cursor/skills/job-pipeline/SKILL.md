@@ -25,14 +25,18 @@ Project root: `D:\Work\JobHunting\00_AI Trainer\AI Trainer Copiot`. Use `.\.venv
 - LinkedIn: `jt profile optimize` writes `output/linkedin_advice.md`.
 - Benchmarks: `jt samples generate`, `jt samples compare <archetype>`.
 - Teaching model: `jt samples suggest --name "<virtual candidate>" --company "<real last company>"`
-  with optional `--jd` / `--jd-file`, optional `--profile-file` (LinkedIn-style .txt/.md dump), and
-  `--seed-mode last_company|provided` (default `last_company`). Dashboard Teaching models has the same
-  paste/upload + Fill form flow plus a "Use provided employers / schools / certs" toggle.
+  with optional `--title` (last role), optional `--jd` / `--jd-file`, optional `--profile-file`
+  (LinkedIn-style .txt/.md dump), and `--seed-mode last_company|provided` (default `last_company`).
+  Dashboard Teaching models has the same paste/upload + Fill form flow plus a
+  "Use provided employers / schools / certs" toggle.
   `provided` locks employers/schools/creds to the seed (skills/bullets/projects may still be generated);
   `last_company` is the original invent-peers path. Writes under `output/suggestions/`.
-  The name is the virtual candidate. The last company is their latest employer in the model;
-  in last_company mode other employers must be US high-ranking peers, and universities/credentials stay real.
-  JD-targeted runs write to a `*-jd` folder so the company-domain base is kept.
+  The name is the virtual candidate. The last company is their latest employer in the model.
+  When `--title` / Last role is set, `target_kind=role_domain`: the **whole** career (peers, titles,
+  bullets at every stop, education, creds, skills) follows that role's domain even if the company
+  sector differs — not a company-industry CV with only the latest title changed.
+  Without a title, peers follow the company's industry (`company_domain`).
+  JD-targeted runs write to a `*-jd` folder; with a title, industry framing still follows the role.
   When the JD needs more than a master's, the model should use PhD/postdoc/professional doctorate
   education from a real high-ranking university, listed as separate degree entries with the prior
   bachelor's/master's ladder (and a second field degree when dual expertise is needed). Licenses and

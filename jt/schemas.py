@@ -268,8 +268,11 @@ class GapQuestions(BaseModel):
 class ResumeRole(BaseModel):
     company: str
     title: str
-    start: str = ""
-    end: str = ""
+    start: str = Field(default="", description="Month + year, e.g. Aug 2010")
+    end: str = Field(
+        default="",
+        description="Month + year or Present, e.g. Feb 2014 / Present",
+    )
     location: str = ""
     bullets: list[str]
 
@@ -411,9 +414,19 @@ class SuggestedBenchmark(BaseModel):
 
     for_candidate: str = ""
     last_company: str = ""
-    inferred_industry: str = Field(description="Industry of the last company, e.g. industrial robotics, hospital systems")
-    inferred_domain: str = Field(description="Specific function the model is built for, e.g. controls engineering")
-    target_kind: str = Field(default="company_domain", description="company_domain or job_description")
+    last_title: str = Field(
+        default="",
+        description="Last role/title when the coach set one; empty means company-domain framing.",
+    )
+    inferred_industry: str = Field(
+        description="Industry of the target career (role domain when last role is set, else company industry), "
+        "e.g. corporate finance, industrial robotics, hospital systems"
+    )
+    inferred_domain: str = Field(description="Specific function the model is built for, e.g. financial specialist, controls engineering")
+    target_kind: str = Field(
+        default="company_domain",
+        description="company_domain, role_domain, or job_description",
+    )
     why_this_shape: str = Field(
         description="Why this career, education, licenses, certifications and projects would rank in the top 0.1% for the target. "
         "When a job description was given, map its main requirements onto sections of the sample.")

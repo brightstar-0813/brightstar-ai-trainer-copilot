@@ -1296,7 +1296,12 @@ def _suggestion_label(folder: Path) -> str:
     data = _load_suggestion(folder)
     if data is None:
         return folder.name
-    target = "job description" if data.target_kind == "job_description" else data.inferred_industry
+    if data.target_kind == "job_description":
+        target = "job description"
+    elif data.target_kind == "role_domain":
+        target = (data.last_title or data.inferred_domain or data.inferred_industry or "role domain").strip()
+    else:
+        target = data.inferred_industry
     return f"{data.persona_name} · {data.last_company} · {target}"
 
 
@@ -1443,6 +1448,10 @@ def teaching_workspace() -> None:
     if data is not None:
         st.subheader(data.persona_name, icon=":material/person:")
         with st.container(horizontal=True):
+            if data.target_kind == "role_domain":
+                st.badge(data.last_title or "role domain", color="orange")
+            elif data.target_kind == "job_description":
+                st.badge("job description", color="orange")
             if data.inferred_domain:
                 st.badge(data.inferred_domain, color="blue")
             if data.inferred_industry:
@@ -1455,7 +1464,7 @@ def teaching_workspace() -> None:
 
     html, md = folder / "resume.html", folder / "profile.md"
     if sm.refresh_suggestion_resume_if_stale(folder):
-        st.toast("Updated project section label to Representative projects")
+        st.toast("Refreshed resume files (labels, spacing, teaching contact)")
     _ensure_suggestion_pdf(folder)
     person = _download_name_stem(
         (data.persona_name if data is not None else ""),
@@ -1633,8 +1642,16 @@ def teaching_workspace() -> None:
             on_save=lambda edited: re_edit.save_teaching_resume_edit(folder, edited),
         ):
             return
-        preview_pane, saved_pane = st.tabs(["Preview", "Saved file"])
-        with preview_pane:
+        # One iframe only — two components.html calls under tabs can show the
+        # stale Saved file inside the Preview tab.
+        view = st.radio(
+            "Resume view",
+            ["Preview", "Saved file"],
+            horizontal=True,
+            key=f"teaching_resume_view_{folder.name}",
+            label_visibility="collapsed",
+        )
+        if view == "Preview":
             if live_html:
                 st.badge(labels_map.get(preview_tid, preview_tid), color="blue")
                 st.badge(preview_accent, color="gray")
@@ -1644,18 +1661,17 @@ def teaching_workspace() -> None:
                     "Build a teaching model first — then preview styles here.",
                     icon=":material/description:",
                 )
-        with saved_pane:
-            if html.exists():
-                components.html(
-                    _resume_preview_html(html.read_text(encoding="utf-8")),
-                    height=720,
-                    scrolling=True,
-                )
-            else:
-                st.info(
-                    "No saved resume.html yet. Use Preview, then Apply style.",
-                    icon=":material/info:",
-                )
+        elif html.exists():
+            components.html(
+                _resume_preview_html(html.read_text(encoding="utf-8")),
+                height=720,
+                scrolling=True,
+            )
+        else:
+            st.info(
+                "No saved resume.html yet. Use Preview, then Apply style.",
+                icon=":material/info:",
+            )
 
 
 _SUGGEST_SECTION_KEYS = (
@@ -2031,9 +2047,9 @@ def page_samples() -> None:
 
     with section_box(
         "2 · Who and where",
-        func="samples suggest --name --company",
+        func="samples suggest --name --company --title",
         icon=":material/badge:",
-        lede="Required: virtual candidate name + real last company. Optional contact and JD targeting.",
+        lede="Required: name + last company. Optional last role frames the whole career to that domain.",
     ):
         name_col, company_col, title_col = st.columns(3, vertical_alignment="bottom")
         name = name_col.text_input(
@@ -2043,7 +2059,11 @@ def page_samples() -> None:
             "Last company", placeholder="Rockwell Automation", key="suggest_company"
         )
         title = title_col.text_input(
-            "Last title", placeholder="Senior controls engineer", key="suggest_title"
+            "Last role",
+            placeholder="Financial Specialist",
+            help="When set, peers, credentials, skills, and bullets across the whole career follow this role's "
+            "domain — even if the company is in another industry.",
+            key="suggest_title",
         )
         loc_col, head_col = st.columns(2, vertical_alignment="bottom")
         loc_col.text_input(
@@ -2074,15 +2094,16 @@ def page_samples() -> None:
         )
         notes_col, jd_col = st.columns(2)
         notes = notes_col.text_area(
-            "Industry notes (optional)",
+            "Role / industry notes (optional)",
             height=140,
-            placeholder="Products, customers, or the kind of work this company hires for.",
+            placeholder="Refine the role domain, products, customers, or kind of work.",
             key="suggest_notes",
         )
         jd = jd_col.text_area(
             "Job description (optional)",
             height=140,
-            placeholder="Paste a posting to aim at that job. Leave empty to aim at the company's industry.",
+            placeholder="Paste a posting to aim at that job. Leave empty to aim at the last role "
+            "(or the company's industry when no role is set).",
             key="suggest_jd",
         )
         jd_file = st.file_uploader(
@@ -2112,8 +2133,8 @@ def page_samples() -> None:
                 c1.text_input("Company", key=f"suggest_exp_company_{eid}", placeholder="Honeywell")
                 c2.text_input("Title", key=f"suggest_exp_title_{eid}", placeholder="Controls engineer")
                 c3, c4, c5 = st.columns(3)
-                c3.text_input("Start", key=f"suggest_exp_start_{eid}", placeholder="2014")
-                c4.text_input("End", key=f"suggest_exp_end_{eid}", placeholder="2019")
+                c3.text_input("Start", key=f"suggest_exp_start_{eid}", placeholder="Aug 2014")
+                c4.text_input("End", key=f"suggest_exp_end_{eid}", placeholder="Feb 2019")
                 c5.text_input("Location", key=f"suggest_exp_location_{eid}", placeholder="Detroit, MI")
                 st.text_area(
                     "Highlights (one per line)",

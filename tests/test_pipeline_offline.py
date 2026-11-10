@@ -100,9 +100,9 @@ class FakeBC:
                     "about": "Designs and commissions safety-rated motion systems.",
                     "experience": [
                         {"company": "Siemens", "title": "Senior Controls Engineer",
-                         "start": "2019", "end": "2024", "bullets": ["Commissioned 12 robot cells"]},
+                         "start": "Mar 2019", "end": "Present", "bullets": ["Commissioned 12 robot cells"]},
                         {"company": "Fanuc", "title": "Controls Engineer",
-                         "start": "2014", "end": "2019", "bullets": ["Wrote PLC standards for 4 lines"]},
+                         "start": "Aug 2014", "end": "Feb 2019", "bullets": ["Wrote PLC standards for 4 lines"]},
                     ],
                     "education": [
                         {"school": "Georgia Institute of Technology", "degree": "BSc",
@@ -250,25 +250,100 @@ def test_verify_resume_flags_unknown_employer(env):
     assert any("'50'" in w for w in warnings)
 
 
+def test_format_month_year_normalizes_known_forms():
+    assert samples.format_month_year("August 2010") == "Aug 2010"
+    assert samples.format_month_year("2010-08") == "Aug 2010"
+    assert samples.format_month_year("08/2010") == "Aug 2010"
+    assert samples.format_month_year("present") == "Present"
+    assert samples.format_month_year("2010") == "2010"
+    from jt.schemas import SuggestedBenchmark
+
+    note = {
+        "section": "headline",
+        "necessary_information": "n",
+        "best_option": "b",
+        "how_to_teach": "h",
+    }
+    raw = SuggestedBenchmark.model_validate(
+        {
+            "for_candidate": "A",
+            "last_company": "Acme",
+            "persona_name": "A",
+            "inferred_industry": "x",
+            "inferred_domain": "x",
+            "why_this_shape": "x",
+            "teaching_notes": [
+                {**note, "section": s}
+                for s in (
+                    "headline",
+                    "experience",
+                    "education",
+                    "licenses",
+                    "certifications",
+                    "projects",
+                )
+            ],
+            "sample": {
+                "archetype": "x",
+                "label": "TEACHING EXAMPLE",
+                "headline": "h",
+                "about": "a",
+                "experience": [
+                    {
+                        "company": "Acme",
+                        "title": "Engineer",
+                        "start": "2010-08",
+                        "end": "2014-02",
+                        "bullets": ["Built X"],
+                    }
+                ],
+                "education": [],
+                "projects": [{"name": "P", "description": "D"}],
+                "skills": ["s1", "s2", "s3", "s4"],
+                "signals": ["a", "b", "c", "d"],
+                "benchmarks": {},
+            },
+        }
+    )
+    guarded = samples.guard_suggestion(raw, "A", "Acme")
+    assert guarded.sample.experience[0].start == "Aug 2010"
+    assert guarded.sample.experience[0].end == "Feb 2014"
+
+
 def test_suggest_sample_teaches_with_real_company_and_name(env):
     from jt.schemas import profile_path
     before = profile_path("test").read_text(encoding="utf-8")
+    company_only, company_paths = samples.suggest_sample("Jane Example", "Fanuc")
+    assert company_only.target_kind == "company_domain"
+    assert "hiring domain of the last company" in FakeBC.calls[-1]
+    assert company_paths["dir"].endswith("jane-example-fanuc")
+
     suggestion, paths = samples.suggest_sample(
-        "Jane Example", "Fanuc", title="Controls Engineer")
-    assert suggestion.target_kind == "company_domain"
+        "Jane Example", "Fanuc", title="Financial Specialist")
+    assert suggestion.target_kind == "role_domain"
+    assert suggestion.last_title == "Financial Specialist"
     assert suggestion.persona_name == "Jane Example"
     assert "TEACHING EXAMPLE" in suggestion.sample.label
     assert suggestion.sample.experience[0].company == "Fanuc"
+    assert suggestion.sample.experience[0].title == "Financial Specialist"
     assert suggestion.sample.experience[1].company == "Siemens"
+    role_prompt = FakeBC.calls[-1]
+    assert "Last role: Financial Specialist" in role_prompt
+    assert 'Set `target_kind` to "role_domain"' in role_prompt
+    assert "Whole-career rule" in role_prompt
+    assert "Anti-pattern" in role_prompt
     assert any("state engineering" in n for n in samples.generic_org_notes(suggestion))
     assert paths["dir"].endswith("jane-example-fanuc")
     profile = Path(paths["profile"]).read_text(encoding="utf-8")
     assert "How to teach it" in profile and "Georgia Institute of Technology" in profile
+    assert "aimed at the last role (Financial Specialist)" in profile
     assert Path(paths["docx"]).stat().st_size > 1000
     assert paths["pdf"] and Path(paths["pdf"]).exists()
     html = Path(paths["html"]).read_text(encoding="utf-8")
-    assert "Jane Example" in html or "Virtual candidate" in html
+    assert "Jane Example" in html
+    assert "Virtual candidate — teaching example" not in html
     assert "Fanuc" in html
+    assert "Aug 2014" in html and "Feb 2019" in html
     assert "Representative projects" in html
     assert "Selected Projects" not in html
     assert "Representative projects" in profile
@@ -276,11 +351,12 @@ def test_suggest_sample_teaches_with_real_company_and_name(env):
     assert "total_relevant_experience" not in html
     assert "Additional" not in html
     resume = samples.sample_to_resume(suggestion)
-    assert resume.contact == "Virtual candidate — teaching example"
+    assert resume.contact == ""
     assert resume.additional == []
     assert len(resume.skills) <= 18
     assert "years: 12" not in " ".join(resume.additional)
     assert profile_path("test").read_text(encoding="utf-8") == before
+    assert "Mon YYYY" in FakeBC.calls[-1] or "Aug 2010" in FakeBC.calls[-1]
 
     stale_dir = Path(paths["dir"])
     (stale_dir / "resume.html").write_text(
@@ -293,20 +369,55 @@ def test_suggest_sample_teaches_with_real_company_and_name(env):
     assert "Selected Projects" not in refreshed
     assert samples.refresh_suggestion_resume_if_stale(stale_dir) is False
 
+    # Old header→summary padding must also force a re-render.
+    loose = refreshed.replace(
+        ".body { padding: var(--body-pad, 0 14mm 12mm); }",
+        ".body { padding: 10mm 14mm 12mm; }",
+        1,
+    )
+    (stale_dir / "resume.html").write_text(loose, encoding="utf-8")
+    assert samples.refresh_suggestion_resume_if_stale(stale_dir) is True
+    tight = (stale_dir / "resume.html").read_text(encoding="utf-8")
+    assert ".body { padding: 10mm 14mm 12mm; }" not in tight
+    assert "Representative projects" in tight
+
+    # Teaching-only contact note must be stripped from downloadable HTML.
+    noted = tight.replace(
+        "</header>",
+        '<p class="contact">Virtual candidate — teaching example</p>\n</header>',
+        1,
+    )
+    (stale_dir / "resume.html").write_text(noted, encoding="utf-8")
+    assert samples.refresh_suggestion_resume_if_stale(stale_dir) is True
+    cleaned = (stale_dir / "resume.html").read_text(encoding="utf-8")
+    assert "Virtual candidate — teaching example" not in cleaned
+
     missing = suggestion.model_copy(deep=True)
     missing.sample.experience[0].company = "Siemens"
+    missing.sample.experience[0].title = "Wrong Title"
     missing.sample.experience[1].company = "ABB"
-    fixed = samples.guard_suggestion(missing, "Jane Example", "Fanuc")
+    fixed = samples.guard_suggestion(
+        missing, "Jane Example", "Fanuc", title="Financial Specialist")
     assert fixed.persona_name == "Jane Example"
     assert fixed.sample.experience[0].company == "Fanuc"
+    assert fixed.sample.experience[0].title == "Financial Specialist"
+    assert fixed.last_title == "Financial Specialist"
 
     aimed, aimed_paths = samples.suggest_sample(
-        "Jane Example", "Fanuc", jd="Need a PE-licensed controls engineer for robot cells.")
+        "Jane Example",
+        "Fanuc",
+        title="Financial Specialist",
+        jd="Need a PE-licensed controls engineer for robot cells.",
+    )
     assert aimed.target_kind == "job_description"
+    assert aimed.last_title == "Financial Specialist"
     assert aimed_paths["dir"].endswith("jane-example-fanuc-jd")
-    assert "Fanuc" in FakeBC.calls[-1]
-    assert "PE-licensed" in FakeBC.calls[-1]
-    assert "real universities" in FakeBC.calls[-1]
+    jd_prompt = FakeBC.calls[-1]
+    assert "Fanuc" in jd_prompt
+    assert "PE-licensed" in jd_prompt
+    assert "real universities" in jd_prompt
+    assert "Career spine" in jd_prompt
+    assert "Financial Specialist" in jd_prompt
 
 
 def test_parse_profile_dump_fills_suggest_fields(env):

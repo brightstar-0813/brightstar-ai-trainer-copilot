@@ -11,8 +11,7 @@ defaults:
 
 # provider: browser → follow dashboard/side-panel engine + Session (ChatGPT/Claude).
 # bridge_test stays pinned to Claude browser for selector checks.
-# sample_suggest is large JSON: prefer OpenAI API in code when OPENAI_API_KEY is set;
-# timeout (seconds) applies to each ask when the browser path is used.
+# sample_suggest is large JSON; timeout (seconds) applies when the browser path is used.
 tasks:
   job_analyze:      { provider: browser }
   gap_questions:    { provider: browser }

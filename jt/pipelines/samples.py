@@ -807,8 +807,7 @@ def suggest_sample(
             "seed_mode=provided requires profile_seed with experience, education, licenses, or certifications"
         )
     md = market_data()
-    # Dense teaching JSON often exceeds ChatGPT-bridge 5-minute waits; use the API when keyed.
-    api = "openai" if config.openai_api_key() else None
+    # Use the configured engine (browser ChatGPT/Claude by default). models.yaml sets a long timeout.
     suggestion = ask_json("sample_suggest", SuggestedBenchmark, {
         "name": name,
         "company": company,
@@ -821,7 +820,7 @@ def suggest_sample(
         "archetypes": archetypes(),
         "n_jobs": md["n_jobs"],
         "top_keywords": md["top_keywords"],
-    }, provider=api)
+    })
     suggestion.target_kind = "job_description" if jd else "company_domain"
     suggestion = guard_suggestion(suggestion, name, company)
     if mode == "provided":

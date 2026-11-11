@@ -1340,6 +1340,7 @@ def _download_file_name(stem: str, stored_name: str) -> str:
         "profile": "Notes",
         "prompt": "Prompt",
         "suggestion": "Suggestion",
+        "alignment_report": "Alignment",
     }.get(kind, kind.capitalize() or "File")
     safe = re.sub(r"[^A-Za-z0-9_-]+", "_", (stem or "Resume").strip()) or "Resume"
     return f"{safe}_{label}{suffix}"
@@ -1472,6 +1473,28 @@ def teaching_workspace() -> None:
     else:
         st.subheader(folder.name)
 
+    align = sm.load_alignment(folder)
+    if isinstance(align, dict) and align:
+        with st.container(border=True):
+            st.markdown("**JD alignment** (local keyword ATS — not a vendor score)")
+            c1, c2, c3, c4 = st.columns(4)
+            c1.metric("Fit", f"{float(align.get('fit_score') or 0):.0f}")
+            c2.metric("ATS %", f"{float(align.get('ats_coverage') or 0):.0f}")
+            c3.metric("Band", str(align.get("screen_band") or "—"))
+            tier = align.get("tier_label") or "—"
+            top = "yes" if align.get("is_top_tier") else "no"
+            c4.metric("Top-tier", f"{top} ({tier})")
+            verdict = (align.get("verdict") or "").strip()
+            if verdict:
+                st.caption(verdict)
+            missing = align.get("keywords_missing") or []
+            if missing:
+                st.caption("Missing keywords: " + ", ".join(missing))
+            if align.get("weave_attempted"):
+                st.caption(
+                    f"Weave retry applied={bool(align.get('weave_applied'))}"
+                )
+
     html, md = folder / "resume.html", folder / "profile.md"
     if sm.refresh_suggestion_resume_if_stale(folder):
         st.toast("Refreshed resume files (labels, spacing, teaching contact)")
@@ -1486,6 +1509,8 @@ def teaching_workspace() -> None:
         _download(folder, "resume.pdf", "Download PDF", stem=person)
         _download(folder, "resume.html", "Download HTML", stem=person)
         _download(folder, "profile.md", "Download notes", stem=person)
+        if (folder / "alignment_report.md").exists():
+            _download(folder, "alignment_report.md", "Download alignment", stem=person)
         if st.button(
             "Suitable jobs / types",
             icon=":material/work:",
@@ -1992,7 +2017,8 @@ def _apply_suggest_profile_dump(text: str) -> str:
 def page_samples() -> None:
     page_header(
         "Teaching models",
-        "Build a top 0.1% profile and resume for a virtual candidate, then teach from the notes.",
+        "Build a top 0.1% profile and resume for a virtual candidate. "
+        "With a JD, auto-screen ATS/fit/top-tier alignment.",
         ":material/school:",
         func="jt samples suggest",
     )

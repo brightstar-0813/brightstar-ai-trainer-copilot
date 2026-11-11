@@ -73,6 +73,20 @@ class FakeBC:
                                     {"gap": "RLHF", "question": "How many RLHF tasks did you rank?"}]})
         if "expert resume writer" in prompt:
             return j(RESUME)
+        if "teaching-model resume aligner" in prompt:
+            # Weave JD keywords into skills so the alignment retry can raise ATS coverage.
+            woven = dict(RESUME)
+            woven["skills"] = list(dict.fromkeys(
+                list(RESUME.get("skills") or []) + ["rlhf", "mathematics", "python", "latex"]
+            ))
+            woven["summary"] = (
+                (RESUME.get("summary") or "")
+                + " RLHF ranking, mathematics, python, and latex for model evaluation."
+            )
+            woven["unverified_claims"] = [
+                "Teaching model. The person is virtual. The organisations named are real ones to learn from."
+            ]
+            return j(woven)
         if "Edit the resume below" in prompt:
             return j({"resume": RESUME, "changes": ["varied verbs"]})
         if "LinkedIn strategist" in prompt:
@@ -426,17 +440,46 @@ def test_suggest_sample_teaches_with_real_company_and_name(env):
         "Jane Example",
         "Fanuc",
         title="Financial Specialist",
-        jd="Need a PE-licensed controls engineer for robot cells.",
+        jd="Need a PE-licensed controls engineer for robot cells. RLHF mathematics python latex.",
     )
     assert aimed.target_kind == "job_description"
     assert aimed.last_title == "Financial Specialist"
     assert aimed_paths["dir"].endswith("jane-example-fanuc-jd")
-    jd_prompt = FakeBC.calls[-1]
+    assert Path(aimed_paths["alignment_json"]).exists()
+    assert Path(aimed_paths["alignment_report"]).exists()
+    assert Path(aimed_paths["jd"]).exists()
+    align = samples.load_alignment(aimed_paths["dir"])
+    assert align is not None
+    assert "ats_coverage" in align and "fit_score" in align
+    assert align.get("ats_is_local_keyword_coverage") is True
+    # Offline FakeBC keywords rarely match a controls teaching model on first pass.
+    assert align.get("weave_attempted") is True
+    assert any("teaching-model resume aligner" in c for c in FakeBC.calls)
+    assert any("senior recruiter and ATS screener" in c for c in FakeBC.calls)
+    # Sample suggest prompt is earlier than align/match calls.
+    suggest_prompts = [c for c in FakeBC.calls if "domain hiring benchmark writer" in c]
+    assert suggest_prompts
+    jd_prompt = suggest_prompts[-1]
     assert "Fanuc" in jd_prompt
     assert "PE-licensed" in jd_prompt
     assert "real universities" in jd_prompt
     assert "Career spine" in jd_prompt
     assert "Financial Specialist" in jd_prompt
+
+
+def test_align_suggestion_dir_rescores_without_weave(env):
+    suggestion, paths = samples.suggest_sample("Jane Example", "Fanuc")
+    folder = Path(paths["dir"])
+    jd = "Need a PE-licensed controls engineer for robot cells. RLHF mathematics python latex."
+    _s, align_paths = samples.align_suggestion_dir(folder, jd=jd, weave=False)
+    assert Path(align_paths["alignment_json"]).exists()
+    payload = samples.load_alignment(folder)
+    assert payload is not None
+    assert payload.get("weave_attempted") is False
+    assert (folder / "jd.txt").read_text(encoding="utf-8").strip() == jd
+    # Re-score from cached jd.txt
+    _s2, paths2 = samples.align_suggestion_dir(folder, weave=False)
+    assert Path(paths2["alignment_report"]).exists()
 
 
 def test_parse_profile_dump_fills_suggest_fields(env):

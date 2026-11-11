@@ -20,6 +20,7 @@ tasks:
   profile_optimize: { provider: browser }
   samples:          { provider: browser }
   sample_suggest:   { provider: browser, timeout: 900 }
+  sample_align:     { provider: browser }
   resume_import:    { provider: browser }
   compare:          { provider: browser }
   match_screen:     { provider: browser }

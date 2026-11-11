@@ -37,6 +37,9 @@ Project root: `D:\Work\JobHunting\00_AI Trainer\AI Trainer Copiot`. Use `.\.venv
   sector differs — not a company-industry CV with only the latest title changed.
   Without a title, peers follow the company's industry (`company_domain`).
   JD-targeted runs write to a `*-jd` folder; with a title, industry framing still follows the role.
+  After a JD suggest, the pipeline auto-screens the teaching resume (fit + local ATS keyword coverage +
+  top-0.1% verdict), may run one keyword-weave pass, and writes `alignment.json` / `alignment_report.md`
+  (+ `jd.txt`) beside the resume. Re-score with `jt samples align --dir <folder> [--jd-file …] [--weave]`.
   Invented teaching models always use a doctoral education ladder (bachelor's + master's + PhD, or
   the domain's professional doctorate) from real high-ranking universities as separate degree
   entries — not BS/MS alone (add a second field degree when dual expertise is needed). Provided-seed
@@ -44,6 +47,8 @@ Project root: `D:\Work\JobHunting\00_AI Trainer\AI Trainer Copiot`. Use `.\.venv
   credentials exist for the domain (typically 1–3 licenses plus 2–4 specialty certs, or 3–6
   vendor/professional certs) — not a single token credential.
   Resume tailor keeps every real degree in the master profile but surfaces only job-relevant ones.
+  Demo vs real: Teaching+JD shows how a perfectly matched resume is built when the profile is
+  appropriate (illustrative). Real applicants use `jt tailor` only — never invent facts to force ATS %.
 
 ## Rules
 - Never invent facts for the user. If an answer is unknown, leave it empty.

@@ -58,6 +58,23 @@ LinkedIn **job** collection is not supported.
 | LinkedIn headline / About / skills | `jt profile optimize` → `output/linkedin_advice.md` |
 | Top-0.1% samples and comparison | `jt samples generate`, `jt samples compare stem_phd` |
 | Teaching profile for a virtual candidate | `jt samples suggest --name "Mina Cho" --company "Rockwell Automation" --jd-file jd.txt` |
+| Re-score teaching model vs JD | `jt samples align --dir output\suggestions\<folder> --jd-file jd.txt` |
+
+### Demo: perfect JD match (teaching) vs real candidate
+
+**Teaching (illustrative):** invent an *appropriate* virtual profile aimed at a JD, emit the resume, then prove
+alignment. ATS % is **local keyword coverage**, not a third-party ATS vendor score.
+
+```powershell
+.\.venv\Scripts\jt samples suggest --name "Mina Cho" --company "Rockwell Automation" --title "Controls Engineer" --jd-file jd.txt
+# → output/suggestions/*-jd/ with resume + alignment_report.md (ATS / fit / top-tier)
+.\.venv\Scripts\jt samples align --dir output\suggestions\<folder>   # re-proof using saved jd.txt
+```
+
+Dashboard **Teaching** shows the same alignment strip after a JD Build.
+
+**Real candidate (facts only):** `jt profile import` → `jt tailor <job_id>`. Never invents employers, dates, or
+metrics; missing JD keywords stay missing unless they are already in the profile or gap answers.
 
 ## Choosing models
 

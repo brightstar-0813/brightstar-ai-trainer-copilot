@@ -157,18 +157,19 @@ def report_to_markdown(report: MatchReport) -> str:
     return "\n".join(lines)
 
 
-def screen_match(
-    jd: str = "",
-    jd_file: Path | None = None,
-    job_id: int | None = None,
-    resume: Path | None = None,
-    resume_text: str = "",
-    profile: str | None = None,
+def build_match_report(
+    job: SimpleNamespace,
+    cand: MasterProfile,
+    *,
+    candidate_source: str = "",
+    extra_text: str = "",
 ) -> MatchReport:
-    job = _resolve_jd(jd=jd, jd_file=jd_file, job_id=job_id)
-    cand, candidate_source, extra_text = _resolve_profile(
-        resume=resume, resume_text=resume_text, profile=profile)
+    """Core JD + profile/resume screen (no filesystem writes).
 
+    ``extra_text`` is appended to the profile corpus for ATS keyword checks
+    (e.g. generated resume body). ATS coverage is local keyword hit-rate, not a
+    third-party ATS vendor score.
+    """
     req = ask_json("job_analyze", JobRequirements, {"job": job})
     fit, gaps = score_fit(req, cand, job.description)
     band = screen_band(fit)
@@ -196,11 +197,7 @@ def screen_match(
         },
     )
 
-    stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
-    out_dir = config.OUTPUT_DIR / "matches" / stamp
-    out_dir.mkdir(parents=True, exist_ok=True)
-
-    report = MatchReport(
+    return MatchReport(
         fit_score=fit,
         ats_coverage=ats_pct,
         screen_band=band,
@@ -213,9 +210,39 @@ def screen_match(
         jd_title=job.title,
         jd_company=job.company,
         candidate_source=candidate_source,
-        report_dir=str(out_dir),
+        report_dir="",
     )
+
+
+def write_match_artifacts(report: MatchReport, out_dir: Path, jd_text: str) -> MatchReport:
+    """Persist match report JSON/MD + JD text; set report_dir."""
+    out_dir = Path(out_dir)
+    out_dir.mkdir(parents=True, exist_ok=True)
+    report.report_dir = str(out_dir)
     (out_dir / "report.json").write_text(report.model_dump_json(indent=2), encoding="utf-8")
     (out_dir / "report.md").write_text(report_to_markdown(report), encoding="utf-8")
-    (out_dir / "jd.txt").write_text(job.description, encoding="utf-8")
+    (out_dir / "jd.txt").write_text(jd_text, encoding="utf-8")
     return report
+
+
+def screen_match(
+    jd: str = "",
+    jd_file: Path | None = None,
+    job_id: int | None = None,
+    resume: Path | None = None,
+    resume_text: str = "",
+    profile: str | None = None,
+) -> MatchReport:
+    job = _resolve_jd(jd=jd, jd_file=jd_file, job_id=job_id)
+    cand, candidate_source, extra_text = _resolve_profile(
+        resume=resume, resume_text=resume_text, profile=profile)
+
+    report = build_match_report(
+        job,
+        cand,
+        candidate_source=candidate_source,
+        extra_text=extra_text,
+    )
+    stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    out_dir = config.OUTPUT_DIR / "matches" / stamp
+    return write_match_artifacts(report, out_dir, job.description)

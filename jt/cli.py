@@ -706,6 +706,76 @@ def samples_suggest(
     rprint(suggestion.why_this_shape)
     rprint(f"[green]profile[/green] {paths['profile']}")
     rprint(f"[green]resume[/green]  {paths['docx']}")
+    if paths.get("alignment_json"):
+        from .pipelines.samples import load_alignment
+
+        align = load_alignment(paths["dir"]) or {}
+        ats = float(align.get("ats_coverage") or 0)
+        fit = float(align.get("fit_score") or 0)
+        tier = align.get("tier_label") or "—"
+        top = "yes" if align.get("is_top_tier") else "no"
+        rprint(
+            f"[cyan]alignment[/cyan] fit {fit:.0f} | ATS {ats:.0f}% "
+            f"(local keyword coverage) | top-tier {top} ({tier})"
+        )
+        if align.get("weave_attempted"):
+            rprint(
+                f"[dim]weave retry applied={bool(align.get('weave_applied'))}[/dim]"
+            )
+        rprint(f"[green]alignment[/green] {paths.get('alignment_report')}")
+
+
+@samples_app.command("align")
+@_llm_guard
+def samples_align(
+    dir: Path = typer.Option(
+        None,
+        "--dir",
+        help="Suggestion folder (default: newest under output/suggestions/)",
+        exists=True,
+        file_okay=False,
+        dir_okay=True,
+    ),
+    jd: str = typer.Option("", "--jd", help="Job description text"),
+    jd_file: Path = typer.Option(
+        None,
+        "--jd-file",
+        exists=True,
+        help="JD file (.txt/.md). Defaults to jd.txt in the suggestion folder when present",
+    ),
+    weave: bool = typer.Option(
+        False,
+        "--weave",
+        help="Allow one keyword-weave pass when ATS < 99% or top-tier is false",
+    ),
+) -> None:
+    """Re-score a teaching model vs a JD (ATS + top 0.1% screen). Does not invent a new career."""
+    from .pipelines.samples import align_suggestion_dir, load_alignment
+
+    try:
+        _suggestion, paths = align_suggestion_dir(
+            dir,
+            jd=jd,
+            jd_file=jd_file,
+            weave=weave,
+        )
+    except (FileNotFoundError, ValueError) as e:
+        rprint(f"[red]{e}[/red]")
+        raise typer.Exit(1)
+    align = load_alignment(paths["dir"]) or {}
+    ats = float(align.get("ats_coverage") or 0)
+    fit = float(align.get("fit_score") or 0)
+    tier = align.get("tier_label") or "—"
+    top = "yes" if align.get("is_top_tier") else "no"
+    rprint(f"[dim]teaching model: {paths['dir']}[/dim]")
+    rprint(
+        f"fit {fit:.0f} | ATS {ats:.0f}% (local keyword coverage) | "
+        f"top-tier {top} ({tier})"
+    )
+    missing = align.get("keywords_missing") or []
+    if missing:
+        rprint(f"[yellow]missing keywords:[/yellow] {', '.join(missing)}")
+    rprint(f"[green]saved[/green] {paths.get('alignment_report')}")
 
 
 @samples_app.command("import-json")

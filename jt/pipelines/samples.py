@@ -8,10 +8,13 @@ from typing import Any
 
 from sqlmodel import select
 
+from types import SimpleNamespace
+
 from .. import config, db
 from ..analysis.fit import score_fit
 from ..analysis.taxonomy import domains_in
 from ..llm import ask_json
+from ..llm.client import LLMError
 from ..llm.prefs import (
     normalize_seed_mode,
     preferred_resume_accent,
@@ -26,6 +29,7 @@ from ..schemas import (
     Experience,
     JobRequirements,
     MasterProfile,
+    MatchReport,
     ProfileComparison,
     Project,
     ResumeContent,
@@ -40,6 +44,10 @@ from .profile import market_data
 
 TEACHING_LABEL = "TEACHING EXAMPLE - virtual candidate, model career at real organisations"
 DEFAULT_SUITABLE_MIN_FIT = 60.0
+ATS_ALIGN_TARGET = 99.0
+JD_FILENAME = "jd.txt"
+ALIGNMENT_JSON = "alignment.json"
+ALIGNMENT_MD = "alignment_report.md"
 _GENERIC_ORG = re.compile(
     r"\b(a leading|a regional|a state|a top-?\s*10|a university known|a plant engineering|"
     r"placeholder|fictional firm|generic)\b",
@@ -907,6 +915,7 @@ def suggest_sample(
     When title is set, target_kind=role_domain and the whole career follows that role's domain.
     seed_mode=last_company invents peer employers/schools/creds (original teaching bar).
     seed_mode=provided locks employers/schools/creds to profile_seed; skills/bullets/projects may be generated.
+    When jd is set, also screens the resume vs the JD and may run one keyword-weave pass.
     """
     name, company = (name or "").strip(), (company or "").strip()
     if not name or not company:
@@ -945,7 +954,16 @@ def suggest_sample(
         suggestion = apply_provided_orgs(suggestion, seed, company)
         suggestion = guard_suggestion(suggestion, name, company, title=title)
     suggestion.contact = contact_line_from_seed(seed) or suggestion.contact
-    return suggestion, write_suggestion_artifacts(suggestion)
+    paths = write_suggestion_artifacts(suggestion)
+    if jd:
+        suggestion, align_paths = align_suggestion_dir(
+            paths["dir"],
+            jd=jd,
+            suggestion=suggestion,
+            weave=True,
+        )
+        paths.update(align_paths)
+    return suggestion, paths
 
 
 def write_suggestion_artifacts(
@@ -984,6 +1002,251 @@ def write_suggestion_artifacts(
         "template_id": template_id,
     }
 
+
+def _jd_job_ns(jd: str, title: str = "", company: str = "") -> SimpleNamespace:
+    return SimpleNamespace(
+        title=(title or "").strip() or "Pasted job",
+        company=(company or "").strip() or "Unknown",
+        location="",
+        pay="",
+        source="paste",
+        description=(jd or "").strip(),
+    )
+
+
+def screen_suggestion_against_jd(
+    suggestion: SuggestedBenchmark,
+    jd: str,
+    *,
+    job_title: str = "",
+    job_company: str = "",
+) -> MatchReport:
+    """Fit + ATS + top-0.1% screen for a teaching model vs a pasted JD."""
+    from .match import build_match_report
+    from .tailor import resume_text
+
+    jd = (jd or "").strip()
+    if not jd:
+        raise ValueError("jd text is required")
+    resume = sample_to_resume(suggestion)
+    cand = suggestion_to_master_profile(suggestion)
+    return build_match_report(
+        _jd_job_ns(jd, title=job_title, company=job_company),
+        cand,
+        candidate_source=f"teaching:{suggestion.persona_name or 'virtual'}",
+        extra_text=resume_text(resume),
+    )
+
+
+def alignment_payload(
+    report: MatchReport,
+    *,
+    weave_attempted: bool = False,
+    weave_applied: bool = False,
+) -> dict[str, Any]:
+    screen = report.screen
+    return {
+        "ats_coverage": report.ats_coverage,
+        "fit_score": report.fit_score,
+        "screen_band": report.screen_band,
+        "is_top_tier": bool(screen and screen.is_top_tier),
+        "tier_label": (screen.tier_label if screen else ""),
+        "confidence": (screen.confidence if screen else ""),
+        "keywords_present": list(report.keywords_present or []),
+        "keywords_missing": list(report.keywords_missing or []),
+        "verdict": (screen.verdict if screen else ""),
+        "strengths": list(screen.strengths if screen else []),
+        "gaps_vs_bar": list(screen.gaps_vs_bar if screen else []),
+        "weave_attempted": weave_attempted,
+        "weave_applied": weave_applied,
+        "ats_is_local_keyword_coverage": True,
+        "ats_target": ATS_ALIGN_TARGET,
+        "meets_ats_target": report.ats_coverage >= ATS_ALIGN_TARGET,
+        "jd_title": report.jd_title,
+        "jd_company": report.jd_company,
+        "candidate_source": report.candidate_source,
+    }
+
+
+def alignment_report_markdown(payload: dict[str, Any]) -> str:
+    """Human-readable JD alignment proof for a teaching model folder."""
+    lines = [
+        "# JD alignment report (teaching model)",
+        "",
+        "_ATS coverage here is **local keyword hit-rate** (LLM keywords ∪ taxonomy terms), "
+        "not a third-party Applicant Tracking System vendor score._",
+        "",
+        f"**JD:** {payload.get('jd_title') or 'Pasted job'} @ {payload.get('jd_company') or 'Unknown'}",
+        f"**Candidate:** {payload.get('candidate_source') or 'teaching model'}",
+        "",
+        f"- Fit: **{float(payload.get('fit_score') or 0):.0f}/100** ({payload.get('screen_band') or '—'})",
+        f"- ATS coverage: **{float(payload.get('ats_coverage') or 0):.0f}%** "
+        f"(target ≥ {float(payload.get('ats_target') or ATS_ALIGN_TARGET):.0f}%: "
+        f"{'yes' if payload.get('meets_ats_target') else 'no'})",
+        f"- Top 0.1% tier: **{payload.get('tier_label') or '—'}** "
+        f"(top-tier: {bool(payload.get('is_top_tier'))})",
+        f"- Weave retry: attempted={bool(payload.get('weave_attempted'))}, "
+        f"applied={bool(payload.get('weave_applied'))}",
+        "",
+    ]
+    verdict = (payload.get("verdict") or "").strip()
+    if verdict:
+        lines += ["## Verdict", "", verdict, ""]
+    strengths = payload.get("strengths") or []
+    gaps = payload.get("gaps_vs_bar") or []
+    if strengths or gaps:
+        lines += [
+            "## Strengths",
+            *([f"- {x}" for x in strengths] or ["- (none)"]),
+            "",
+            "## Gaps vs top 0.1% bar",
+            *([f"- {x}" for x in gaps] or ["- (none)"]),
+            "",
+        ]
+    present = payload.get("keywords_present") or []
+    missing = payload.get("keywords_missing") or []
+    lines += [
+        "## Keyword coverage",
+        f"- Present: {', '.join(present) or '(none)'}",
+        f"- Missing: {', '.join(missing) or '(none)'}",
+        "",
+    ]
+    return "\n".join(lines)
+
+
+def write_alignment_artifacts(
+    folder: Path | str,
+    payload: dict[str, Any],
+    *,
+    jd: str = "",
+) -> dict[str, str]:
+    folder = Path(folder)
+    folder.mkdir(parents=True, exist_ok=True)
+    json_path = folder / ALIGNMENT_JSON
+    md_path = folder / ALIGNMENT_MD
+    json_path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+    md_path.write_text(alignment_report_markdown(payload), encoding="utf-8")
+    paths = {
+        "alignment_json": str(json_path),
+        "alignment_report": str(md_path),
+    }
+    if (jd or "").strip():
+        jd_path = folder / JD_FILENAME
+        jd_path.write_text(jd.strip(), encoding="utf-8")
+        paths["jd"] = str(jd_path)
+    return paths
+
+
+def load_alignment(folder: Path | str) -> dict[str, Any] | None:
+    path = Path(folder) / ALIGNMENT_JSON
+    if not path.exists():
+        return None
+    data = json.loads(path.read_text(encoding="utf-8"))
+    return data if isinstance(data, dict) else None
+
+
+def resolve_suggestion_jd(
+    folder: Path | str,
+    *,
+    jd: str = "",
+    jd_file: Path | None = None,
+) -> str:
+    """Resolve JD text from args or the suggestion folder's jd.txt."""
+    text = (jd or "").strip()
+    if not text and jd_file is not None:
+        text = Path(jd_file).read_text(encoding="utf-8").strip()
+    if not text:
+        cached = Path(folder) / JD_FILENAME
+        if cached.exists():
+            text = cached.read_text(encoding="utf-8").strip()
+    if not text:
+        raise ValueError("provide --jd, --jd-file, or a jd.txt saved in the suggestion folder")
+    return text
+
+
+def weave_suggestion_keywords(
+    suggestion: SuggestedBenchmark,
+    jd: str,
+    keywords_missing: list[str],
+) -> SuggestedBenchmark | None:
+    """One LLM pass to weave already-true missing keywords into the teaching resume."""
+    from .resume_edit import apply_resume_to_suggestion
+
+    missing = [k for k in (keywords_missing or []) if str(k).strip()]
+    if not missing:
+        return None
+    resume = sample_to_resume(suggestion)
+    try:
+        woven = ask_json(
+            "sample_align",
+            ResumeContent,
+            {
+                "keywords_missing": missing,
+                "job_title": "Pasted job",
+                "jd_snippet": (jd or "")[:2500],
+                "resume_json": resume.model_dump_json(indent=1),
+            },
+        )
+    except LLMError:
+        return None
+    # Keep teaching marker; aligner must not invent new orgs.
+    if not woven.unverified_claims:
+        woven.unverified_claims = list(resume.unverified_claims or [])
+    return apply_resume_to_suggestion(suggestion, woven)
+
+
+def _needs_align_retry(report: MatchReport) -> bool:
+    top = bool(report.screen and report.screen.is_top_tier)
+    return report.ats_coverage < ATS_ALIGN_TARGET or not top
+
+
+def align_suggestion_dir(
+    folder: Path | str | None = None,
+    *,
+    jd: str = "",
+    jd_file: Path | None = None,
+    suggestion: SuggestedBenchmark | None = None,
+    weave: bool = False,
+) -> tuple[SuggestedBenchmark, dict[str, str]]:
+    """Screen a teaching model vs a JD; optionally weave missing keywords once.
+
+    Writes ``jd.txt``, ``alignment.json``, and ``alignment_report.md`` into the folder.
+    When ``weave`` is true and ATS < 99% or top-tier is false, runs at most one
+    ``sample_align`` pass and re-screens.
+    """
+    if folder is None:
+        dirs = suggestion_dirs()
+        if not dirs:
+            raise FileNotFoundError("No teaching models under output/suggestions/")
+        folder = dirs[0]
+    folder_path = Path(folder)
+    if suggestion is None:
+        suggestion = load_suggestion_dir(folder_path)
+    jd_text = resolve_suggestion_jd(folder_path, jd=jd, jd_file=jd_file)
+
+    report = screen_suggestion_against_jd(suggestion, jd_text)
+    weave_attempted = False
+    weave_applied = False
+    if weave and _needs_align_retry(report) and report.keywords_missing:
+        weave_attempted = True
+        updated = weave_suggestion_keywords(suggestion, jd_text, report.keywords_missing)
+        if updated is not None:
+            suggestion = updated
+            write_suggestion_artifacts(suggestion, out=folder_path)
+            weave_applied = True
+            report = screen_suggestion_against_jd(suggestion, jd_text)
+
+    payload = alignment_payload(
+        report,
+        weave_attempted=weave_attempted,
+        weave_applied=weave_applied,
+    )
+    align_paths = write_alignment_artifacts(folder_path, payload, jd=jd_text)
+    paths = {
+        "dir": str(folder_path),
+        **align_paths,
+    }
+    return suggestion, paths
 
 _OLD_PROJECTS_HEADING = ("Selected Projects", "SELECTED PROJECTS", "Selected Project")
 # Pre-tightening layout markers still present in older resume.html files.

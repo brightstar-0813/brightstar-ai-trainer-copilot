@@ -773,6 +773,41 @@ def test_save_teaching_resume_edit_rewrites_artifacts(env):
     assert saved.sample.experience[0].bullets == ["Edited bullet for Fanuc role"]
 
 
+def test_write_suggestion_artifacts_recovers_from_stale_styles_module(env, monkeypatch):
+    """Simulate a long-lived dashboard that still holds a pre-v3 styles module."""
+    import importlib
+
+    import jt.render.resume as resume_mod
+    import jt.render.styles as styles_mod
+
+    suggestion, _paths = samples.suggest_sample("Jane Example", "Fanuc")
+
+    def _stale_render(r, *, style_id=None, accent_id=None):
+        return (
+            "<!doctype html><html><head><style>"
+            ".body { padding: var(--body-pad, 10mm 14mm 14mm); }"
+            "header.top, header.banner { padding: var(--header-pad, 10mm 14mm 8mm); }"
+            "</style></head><body>"
+            f"<h1>{r.name}</h1>"
+            "<section><h2>Selected Projects</h2></section>"
+            "</body></html>"
+        )
+
+    monkeypatch.setattr(styles_mod, "RESUME_LAYOUT_VERSION", 0)
+    monkeypatch.setattr(styles_mod, "render_styled_html", _stale_render)
+    monkeypatch.setattr(resume_mod, "render_html", lambda *a, **k: _stale_render(a[0]))
+
+    out = config.OUTPUT_DIR / "suggestions" / "stale-styles-probe"
+    paths = samples.write_suggestion_artifacts(suggestion, out=out)
+    html = Path(paths["html"]).read_text(encoding="utf-8")
+    assert "Selected Projects" not in html
+    assert "Representative projects" in html
+    assert "jt-resume-layout:3" in html
+    assert "var(--body-pad, 10mm 14mm 14mm)" not in html
+    importlib.reload(styles_mod)
+    importlib.reload(resume_mod)
+
+
 def test_save_tailored_resume_edit_appends_row(env):
     from jt.render.resume import render_html
 

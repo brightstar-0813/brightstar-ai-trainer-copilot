@@ -12,7 +12,7 @@ from docx.enum.text import WD_ALIGN_PARAGRAPH
 from docx.shared import Inches, Pt, RGBColor
 
 from ..schemas import ResumeContent
-from .styles import DEFAULT_STYLE_ID, render_styled_html, resolve_style_id
+from .styles import DEFAULT_STYLE_ID, resolve_style_id
 
 
 def render_html(
@@ -21,8 +21,18 @@ def render_html(
     template_id: str | None = None,
     accent_id: str | None = None,
 ) -> str:
-    """Style-only HTML: fixed sections + selected visual theme."""
-    return render_styled_html(r, style_id=template_id, accent_id=accent_id)
+    """Style-only HTML: fixed sections + selected visual theme.
+
+    Looks up ``render_styled_html`` on the live styles module (reloading from disk
+    when a long-lived Streamlit process still holds a pre-layout-v3 copy).
+    """
+    import importlib
+
+    from . import styles as styles_mod
+
+    if getattr(styles_mod, "RESUME_LAYOUT_VERSION", 0) < 3:
+        styles_mod = importlib.reload(styles_mod)
+    return styles_mod.render_styled_html(r, style_id=template_id, accent_id=accent_id)
 
 
 def _heading(doc: Document, text: str) -> None:

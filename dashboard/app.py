@@ -57,7 +57,13 @@ from jt.pipelines import profile as pf  # noqa: E402
 from jt.pipelines import resume_edit as re_edit  # noqa: E402
 from jt.pipelines import samples as sm  # noqa: E402
 from jt.pipelines import tailor as tl  # noqa: E402
+import jt.render.resume as _resume_mod  # noqa: E402
+import jt.render.styles as _styles_mod  # noqa: E402
 
+# Reload styles → resume → samples in that order. Reloading samples alone re-binds
+# render_html from a stale resume module and keeps writing Selected Projects / old gaps.
+importlib.reload(_styles_mod)
+importlib.reload(_resume_mod)
 importlib.reload(sm)
 importlib.reload(re_edit)
 from jt.render.resume import render_docx, render_html, render_pdf  # noqa: E402
@@ -1546,7 +1552,12 @@ def teaching_workspace() -> None:
         resume.caption("A file you can download and a preview.")
         return
 
-    # One-shot sweep so Saved/Download never keep Selected Projects or old gaps.
+    # Re-sweep when layout version changes so a long-lived dashboard rewrites
+    # Selected Projects / stacked gaps after styles.py is fixed on disk.
+    layout_ver = getattr(_styles_mod, "RESUME_LAYOUT_VERSION", 0)
+    if st.session_state.get("_teaching_layout_ver") != layout_ver:
+        st.session_state["_teaching_layout_ver"] = layout_ver
+        st.session_state.pop("_teaching_layout_swept", None)
     if not st.session_state.get("_teaching_layout_swept"):
         refreshed = sm.refresh_all_suggestion_resumes()
         st.session_state["_teaching_layout_swept"] = True

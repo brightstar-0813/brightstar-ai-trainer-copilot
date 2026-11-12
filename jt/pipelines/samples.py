@@ -966,6 +966,54 @@ def suggest_sample(
     return suggestion, paths
 
 
+def _render_teaching_resume_html(
+    resume: ResumeContent,
+    *,
+    template_id: str | None = None,
+    accent_id: str | None = None,
+) -> str:
+    """Render teaching-model HTML from disk styles, even if Streamlit holds a stale copy.
+
+    Long-lived ``jt dashboard`` processes can keep a Nov-era ``styles`` / ``resume``
+    module in ``sys.modules``. Reloading here makes every suggest / paste / refresh
+    write Representative projects + tight header spacing.
+    """
+    import importlib
+
+    from ..render import resume as resume_mod
+    from ..render import styles as styles_mod
+
+    importlib.reload(styles_mod)
+    importlib.reload(resume_mod)
+    html = resume_mod.render_html(resume, template_id=template_id, accent_id=accent_id)
+    if _html_layout_is_stale(html):
+        # Second chance after another reload if something else rebound the modules.
+        importlib.reload(styles_mod)
+        importlib.reload(resume_mod)
+        html = resume_mod.render_html(resume, template_id=template_id, accent_id=accent_id)
+    if _html_layout_is_stale(html):
+        raise RuntimeError(
+            "Resume renderer produced a stale layout (Selected Projects or old "
+            "header/summary gap). Restart `jt dashboard` and try again."
+        )
+    return html
+
+
+def _html_layout_is_stale(html: str) -> bool:
+    """True when HTML still has legacy project labels or pre-tightening CSS."""
+    if not html:
+        return True
+    if any(old in html for old in _OLD_PROJECTS_HEADING):
+        return True
+    if any(marker in html for marker in _OLD_LAYOUT_MARKERS):
+        return True
+    if _resume_layout_marker() not in html:
+        return True
+    if ".body > section:first-child h2 { margin-top: 0; }" not in html:
+        return True
+    return False
+
+
 def write_suggestion_artifacts(
     suggestion: SuggestedBenchmark,
     *,
@@ -983,15 +1031,21 @@ def write_suggestion_artifacts(
     out.mkdir(parents=True, exist_ok=True)
     (out / "suggestion.json").write_text(suggestion.model_dump_json(indent=2), encoding="utf-8")
     profile_md = out / "profile.md"
-    profile_md.write_text(suggestion_to_markdown(suggestion), encoding="utf-8")
+    profile_md.write_text(_scrub_stale_resume_text(suggestion_to_markdown(suggestion)), encoding="utf-8")
     resume = sample_to_resume(suggestion)
     docx_path, html_path, pdf_path = out / "resume.docx", out / "resume.html", out / "resume.pdf"
     template_id = preferred_resume_template()
     accent_id = preferred_resume_accent() or None
-    render_docx(resume, docx_path)
-    html = render_html(resume, template_id=template_id, accent_id=accent_id)
+    # Prefer freshly reloaded docx/html helpers (same stale-module issue as HTML).
+    import importlib
+
+    from ..render import resume as resume_mod
+
+    importlib.reload(resume_mod)
+    resume_mod.render_docx(resume, docx_path)
+    html = _render_teaching_resume_html(resume, template_id=template_id, accent_id=accent_id)
     html_path.write_text(html, encoding="utf-8")
-    pdf_ok = render_pdf(html, pdf_path)
+    pdf_ok = resume_mod.render_pdf(html, pdf_path)
     return {
         "dir": str(out),
         "json": str(out / "suggestion.json"),
@@ -1325,11 +1379,7 @@ def _suggestion_resume_is_stale(folder: Path) -> bool:
     if any(old in blob for old in _TEACHING_CONTACT_PLACEHOLDERS):
         return True
     html = texts[0] if html_path.exists() and texts else ""
-    if html and _resume_layout_marker() not in html:
-        return True
-    if html and any(marker in html for marker in _OLD_LAYOUT_MARKERS):
-        return True
-    if html and ".body > section:first-child h2 { margin-top: 0; }" not in html:
+    if html and _html_layout_is_stale(html):
         return True
     return False
 
@@ -1353,7 +1403,10 @@ def refresh_all_suggestion_resumes(root: Path | None = None) -> list[str]:
 
 def _rerender_resume_from_saved_html(folder: Path) -> bool:
     """Rebuild DOCX/HTML/PDF from resume.html when suggestion.json cannot load."""
+    import importlib
+
     from ..llm.prefs import preferred_resume_accent, preferred_resume_template
+    from ..render import resume as resume_mod
     from ..render.html_parse import ResumeHtmlParseError, parse_resume_html
 
     folder = Path(folder)
@@ -1367,10 +1420,11 @@ def _rerender_resume_from_saved_html(folder: Path) -> bool:
         return False
     template_id = preferred_resume_template()
     accent_id = preferred_resume_accent() or None
-    styled = render_html(resume, template_id=template_id, accent_id=accent_id)
+    styled = _render_teaching_resume_html(resume, template_id=template_id, accent_id=accent_id)
     html_path.write_text(styled, encoding="utf-8")
-    render_docx(resume, folder / "resume.docx")
-    render_pdf(styled, folder / "resume.pdf")
+    importlib.reload(resume_mod)
+    resume_mod.render_docx(resume, folder / "resume.docx")
+    resume_mod.render_pdf(styled, folder / "resume.pdf")
     md_path = folder / "profile.md"
     if md_path.exists():
         md = md_path.read_text(encoding="utf-8")

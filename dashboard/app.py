@@ -390,8 +390,10 @@ def run_bg(label: str, *args: str) -> None:
     if old and old.poll() is None:
         st.warning(f"'{label}' is already running", icon=":material/hourglass_top:")
         return
+    # Allow a re-run of the same label to toast again when it finishes.
+    st.session_state.setdefault("bg_toasted", set()).discard(label)
     procs[label] = _spawn(list(args), label.replace(" ", "_").replace("/", "_"))
-    st.toast(f"Started: {label}")
+    st.toast(f"Started: {label}", icon=":material/play_arrow:")
 
 
 def open_ai_session() -> bool:
@@ -498,6 +500,61 @@ def _running_bg_labels(prefix: str | None = None) -> list[str]:
     return labels
 
 
+def _bg_log_path(label: str) -> Path:
+    return LOGS / f"{label.replace(' ', '_').replace('/', '_')}.log"
+
+
+def _bg_log_tail(label: str, n: int = 4000) -> str:
+    log = _bg_log_path(label)
+    if not log.exists():
+        return ""
+    return log.read_text(encoding="utf-8", errors="ignore")[-n:]
+
+
+def _bg_finish_summary(label: str, code: int, log_tail: str = "") -> str:
+    """Short toast line for a finished background task."""
+    title = label[:1].upper() + label[1:] if label else "Task"
+    if code != 0:
+        return f"{title} failed (exit {code}) — see Tasks log"
+    tail = log_tail or ""
+    # Prefer the last informative collect / discover line.
+    for pat in (
+        r"Collect:.*new\s+\d+",
+        r"ATS boards:.*new\s+\d+",
+        r"Verified boards:\s*\d+/\d+",
+        r"new\s+\d+",
+    ):
+        matches = re.findall(pat, tail, flags=re.I)
+        if matches:
+            return f"{title} finished — {matches[-1].strip()}"
+    if label.startswith("suggest "):
+        return "Teaching model finished"
+    if label.startswith("analyze"):
+        return f"{title} finished"
+    if label.startswith("tailor"):
+        return f"{title} finished — resume ready"
+    if label.startswith("questions"):
+        return f"{title} finished — questions ready"
+    if label in {"fetch jobs", "collect ats"} or label.startswith("collect"):
+        return f"{title} finished"
+    return f"{title} finished"
+
+
+def _toast_finished_bg() -> None:
+    """Toast once per finished background proc (idempotent across fragment polls)."""
+    notified: set[str] = st.session_state.setdefault("bg_toasted", set())
+    for label, proc in list(_bg_procs().items()):
+        code = proc.poll()
+        if code is None or label in notified:
+            continue
+        notified.add(label)
+        summary = _bg_finish_summary(label, code, _bg_log_tail(label))
+        if code == 0:
+            st.toast(summary, icon=":material/check_circle:")
+        else:
+            st.toast(summary, icon=":material/error:")
+
+
 def _render_tasks_panel() -> None:
     procs = _bg_procs()
     if not procs:
@@ -509,8 +566,10 @@ def _render_tasks_panel() -> None:
         icon=":material/delete_sweep:",
         key="clear_finished_tasks",
     ):
+        toasted = st.session_state.setdefault("bg_toasted", set())
         for label in finished:
             procs.pop(label, None)
+            toasted.discard(label)
         st.rerun()
     for label, p in list(procs.items()):
         code = p.poll()
@@ -520,7 +579,7 @@ def _render_tasks_panel() -> None:
             state, icon = "done", ":material/check_circle:"
         else:
             state, icon = f"failed (exit {code})", ":material/error:"
-        log = LOGS / f"{label.replace(' ', '_').replace('/', '_')}.log"
+        log = _bg_log_path(label)
         with st.expander(f"{label}: {state}", expanded=code is None, icon=icon):
             st.code(log.read_text(encoding="utf-8", errors="ignore")[-3000:] if log.exists() else "", language="text")
             if code is not None and icon_button(
@@ -528,18 +587,21 @@ def _render_tasks_panel() -> None:
                 key=f"dismiss_task_{label}",
             ):
                 procs.pop(label, None)
+                st.session_state.setdefault("bg_toasted", set()).discard(label)
                 st.rerun()
 
 
 @st.fragment(run_every=3)
 def _tasks_panel_live() -> None:
     """Poll task logs only while a background job is running; remount once it ends."""
+    _toast_finished_bg()
     _render_tasks_panel()
     if not _running_bg_labels():
         st.rerun()
 
 
 def tasks_panel() -> None:
+    _toast_finished_bg()
     if _running_bg_labels():
         _tasks_panel_live()
     else:
@@ -548,6 +610,7 @@ def tasks_panel() -> None:
 
 @st.fragment(run_every=3)
 def _sidebar_activity_live() -> None:
+    _toast_finished_bg()
     running = _running_bg_labels()
     if running:
         st.caption("Running: " + ", ".join(running))
@@ -676,14 +739,17 @@ def page_overview() -> None:
             "Save engine", icon=":material/save:", width="stretch", disabled=(chosen == current)
         ):
             save_prefs(engine=chosen)
+            st.toast(f"Engine saved: {ENGINE_LABELS[chosen]}", icon=":material/check_circle:")
             st.success(f"Saved: {ENGINE_LABELS[chosen]}", icon=":material/check_circle:")
             st.rerun()
         if refresh_col.button("Refresh status", icon=":material/refresh:", width="stretch"):
             st.rerun()
+        active = llm.get("active") or llm["resolved_auto"]
         st.caption(
-            f"Engine **{llm['preferred']}**. With **browser**, tasks use both ChatGPT and Claude "
-            f"(see config/models.yaml). Fallback probe resolves to **{llm['resolved_auto']}**. "
-            "API keys are optional. Save → `jt llm engine`."
+            f"Engine **{llm['preferred']}** → active backend **{active}**. "
+            f"With **browser**, tasks use ChatGPT/Claude tabs (config/models.yaml). "
+            f"**auto** probe → **{llm['resolved_auto']}**. "
+            "API keys optional. Save → `jt llm engine`."
         )
 
         o, a, b = llm["openai"], llm["anthropic"], llm["bridge"] or {}
@@ -721,8 +787,9 @@ def page_overview() -> None:
 **Preferred:** click the **BrightStar AI Trainer Copilot** extension → side panel → Build.
 That opens ChatGPT/Claude in the same Chrome (Bid-bot style).
 
-**API key (optional):** add `OPENAI_API_KEY=...` to `.env`, set Engine to **OpenAI** in the
-extension Settings or Overview.
+**API key (optional):** add `ANTHROPIC_API_KEY=...` and/or `OPENAI_API_KEY=...` to `.env`.
+Set Engine to **Anthropic / Claude API** or **OpenAI API** here (or `jt llm engine anthropic`).
+No Chrome bridge needed for analyze / tailor when an API engine is selected.
 
 **Load once:** `extension/` in `chrome://extensions` (Developer mode → Load unpacked).
 Keep `jt bridge serve` (or this dashboard) running.
@@ -969,6 +1036,7 @@ def _render_job_detail(job_id: int) -> None:
                 if saved:
                     for qid, ans in answers.items():
                         tl.answer_question(qid, ans)
+                    st.toast("Gap answers saved", icon=":material/check_circle:")
                     st.success("Saved", icon=":material/check_circle:")
                 if st.button("Regenerate questions", icon=":material/refresh:"):
                     run_bg(f"questions {job_id}", "questions", str(job_id), "--regenerate")
@@ -1112,6 +1180,7 @@ def page_profile() -> None:
                         path_new.write_text(example_text, encoding="utf-8")
                         set_active_profile(slug_new)
                         st.session_state.pop("profile_yaml", None)
+                        st.toast(f"Profile created: {slug_new}", icon=":material/check_circle:")
                         st.success(f"Created {slug_new}", icon=":material/check_circle:")
                         st.rerun()
 
@@ -1151,6 +1220,7 @@ def page_profile() -> None:
                         path.parent.mkdir(parents=True, exist_ok=True)
                         path.write_text(edited, encoding="utf-8")
                         set_active_profile(slug)
+                        st.toast("Profile saved", icon=":material/check_circle:")
                         st.success("Saved. Rescoring jobs...", icon=":material/check_circle:")
                         try:
                             st.caption(f"Rescored {an.rescore_all(profile=slug)} analyses")
@@ -1399,6 +1469,7 @@ def _ensure_suggestion_pdf(folder: Path) -> Path | None:
 @st.fragment(run_every=3)
 def _suggest_watchdog() -> None:
     """Poll suggest progress only while it runs; remount once when it finishes."""
+    _toast_finished_bg()
     running = _running_bg_labels(prefix="suggest ")
     if not running:
         st.rerun()

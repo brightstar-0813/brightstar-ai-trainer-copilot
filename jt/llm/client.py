@@ -319,9 +319,9 @@ def ask_json(task: str, schema: type[T], prompt_vars: dict | None = None, *, pro
 
 def status_summary() -> dict:
     """Snapshot of engines for dashboard / `jt llm status`."""
-    from .prefs import ENGINE_LABELS, load_prefs
+    from .prefs import ENGINE_LABELS
 
-    prefs = load_prefs()
+    preferred = preferred_engine()
     resolved = resolve_provider("auto")
     openai_ok, openai_msg = api_llm.provider_ready("openai")
     anthropic_ok, anthropic_msg = api_llm.provider_ready("anthropic")
@@ -334,9 +334,10 @@ def status_summary() -> dict:
     except Exception as e:  # noqa: BLE001
         bridge = {"error": str(e), "extension_connected": False}
     return {
-        "preferred": prefs.get("engine", "browser"),
-        "preferred_label": ENGINE_LABELS.get(prefs.get("engine", "browser"), prefs.get("engine", "browser")),
+        "preferred": preferred,
+        "preferred_label": ENGINE_LABELS.get(preferred, preferred),
         "resolved_auto": resolved,
+        "active": resolve_provider(preferred if preferred != "browser" else "auto"),
         "openai": {"ok": openai_ok, "detail": openai_msg, "model": config.openai_model()},
         "anthropic": {"ok": anthropic_ok, "detail": anthropic_msg, "model": config.anthropic_model()},
         "bridge": bridge,

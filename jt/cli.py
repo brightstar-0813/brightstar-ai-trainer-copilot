@@ -32,7 +32,8 @@ def init() -> None:
     from .db import get_engine
     get_engine()
     rprint(f"Database ready at {config.DB_PATH}")
-    rprint("Easiest: put OPENAI_API_KEY in .env, then `jt llm status` and start using analyze/tailor.")
+    rprint("Easiest: put ANTHROPIC_API_KEY or OPENAI_API_KEY in .env, then "
+           "`jt llm engine anthropic` (or openai) and start analyze/tailor.")
     rprint("Optional browser path: load extension/, `jt bridge serve`, `jt ext-config` for the token.")
 
 
@@ -50,6 +51,7 @@ def llm_status() -> None:
     from .llm.client import status_summary
     st = status_summary()
     rprint(f"Preferred engine: [bold]{st['preferred']}[/bold]  ({st['preferred_label']})")
+    rprint(f"Active for jobs:  [bold]{st.get('active', st['resolved_auto'])}[/bold]")
     rprint(f"Auto resolves to: [bold]{st['resolved_auto']}[/bold]")
     o, a = st["openai"], st["anthropic"]
     rprint(f"OpenAI:    [{'green' if o['ok'] else 'yellow'}]{o['detail']}[/]")

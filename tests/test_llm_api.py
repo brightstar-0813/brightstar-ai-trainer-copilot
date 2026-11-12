@@ -21,25 +21,25 @@ def clean_keys(monkeypatch, tmp_path):
     monkeypatch.setattr(config, "openai_api_key", lambda: "")
     monkeypatch.setattr(config, "anthropic_api_key", lambda: "")
     monkeypatch.setenv("JT_LLM_ENGINE", "auto")
-    monkeypatch.setattr("jt.llm.prefs.load_prefs", lambda: {"engine": "auto"})
     config.ensure_dirs()
+    save_prefs(engine="auto")
 
 
 def test_auto_prefers_openai_key(clean_keys, monkeypatch):
     monkeypatch.setattr(config, "openai_api_key", lambda: "sk-test")
-    monkeypatch.setattr("jt.llm.prefs.load_prefs", lambda: {"engine": "auto"})
+    save_prefs(engine="auto")
     assert llm_client.resolve_provider("auto") == "openai"
 
 
 def test_auto_falls_back_to_anthropic_then_claude(clean_keys, monkeypatch):
-    monkeypatch.setattr("jt.llm.prefs.load_prefs", lambda: {"engine": "auto"})
+    save_prefs(engine="auto")
     assert llm_client.resolve_provider("auto") == "claude"
     monkeypatch.setattr(config, "anthropic_api_key", lambda: "ant-test")
     assert llm_client.resolve_provider("auto") == "anthropic"
 
 
 def test_browser_keeps_explicit_gpt_and_claude(clean_keys, monkeypatch):
-    monkeypatch.setattr("jt.llm.prefs.load_prefs", lambda: {"engine": "browser"})
+    save_prefs(engine="browser")
     monkeypatch.setattr(config, "openai_api_key", lambda: "sk-test")
     assert llm_client.resolve_provider("gpt") == "gpt"
     assert llm_client.resolve_provider("claude") == "claude"
@@ -47,7 +47,7 @@ def test_browser_keeps_explicit_gpt_and_claude(clean_keys, monkeypatch):
 
 
 def test_sidebar_browser_session_routes_browser_tasks(clean_keys, monkeypatch):
-    monkeypatch.setattr("jt.llm.prefs.load_prefs", lambda: {"engine": "browser", "browser": "claude"})
+    save_prefs(engine="browser", browser="claude")
     assert llm_client.route_provider("gpt") == "claude"
     assert llm_client.route_provider("gpt", explicit=True) == "gpt"
     assert llm_client.route_provider("openai") == "openai"
@@ -55,9 +55,36 @@ def test_sidebar_browser_session_routes_browser_tasks(clean_keys, monkeypatch):
 
 def test_prefs_override_auto(clean_keys, monkeypatch):
     monkeypatch.setattr(config, "openai_api_key", lambda: "sk-test")
-    monkeypatch.setattr("jt.llm.prefs.load_prefs", lambda: {"engine": "gpt"})
+    save_prefs(engine="gpt")
     assert llm_client.resolve_provider("auto") == "gpt"
     assert llm_client.resolve_provider("openai") == "openai"  # explicit wins
+
+
+def test_env_engine_used_when_prefs_file_missing(clean_keys, monkeypatch, tmp_path):
+    prefs = config.DATA_DIR / "llm_prefs.yaml"
+    if prefs.exists():
+        prefs.unlink()
+    monkeypatch.setenv("JT_LLM_ENGINE", "anthropic")
+    monkeypatch.setattr(config, "anthropic_api_key", lambda: "ant-test")
+    assert llm_client.preferred_engine() == "anthropic"
+    assert llm_client.resolve_provider("auto") == "anthropic"
+
+
+def test_anthropic_identity_verification_error(clean_keys, monkeypatch):
+    monkeypatch.setattr(config, "anthropic_api_key", lambda: "ant-test")
+
+    def fake_post(url, headers=None, json=None, timeout=None):
+        return httpx.Response(
+            400,
+            json={"error": {"type": "invalid_request_error",
+                            "message": "Identity verification is required to continue."}},
+        )
+
+    monkeypatch.setattr(httpx, "post", fake_post)
+    with pytest.raises(LLMError) as e:
+        api_llm.ask("anthropic", "hi")
+    assert e.value.code == "api_auth"
+    assert "identity verification" in str(e.value).lower()
 
 
 def test_openai_ask_json_and_repair(clean_keys, monkeypatch, tmp_path):

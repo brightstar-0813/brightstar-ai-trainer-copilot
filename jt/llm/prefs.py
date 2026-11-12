@@ -10,9 +10,9 @@ from .. import config
 ENGINES = ("browser", "auto", "openai", "anthropic", "claude", "gpt", "manual")
 ENGINE_LABELS = {
     "browser": "Claude + ChatGPT browser (per task in models.yaml)",
-    "auto": "Auto (API key if set, else Claude browser)",
+    "auto": "Auto (OpenAI key, else Anthropic key, else Claude browser)",
     "openai": "OpenAI API only",
-    "anthropic": "Anthropic API only",
+    "anthropic": "Anthropic / Claude API only",
     "claude": "Claude browser only",
     "gpt": "ChatGPT browser only",
     "manual": "Manual paste (dashboard)",
@@ -125,10 +125,20 @@ def preferred_browser() -> str:
 
 
 def preferred_engine() -> str:
-    """Order: data/llm_prefs.yaml > JT_LLM_ENGINE env > browser."""
-    prefs = load_prefs()
-    if prefs.get("engine"):
-        return prefs["engine"]
+    """Order: explicit engine in llm_prefs.yaml > JT_LLM_ENGINE env > browser.
+
+    Defaults from load_prefs() alone must not hide JT_LLM_ENGINE.
+    """
+    path = prefs_path()
+    if path.exists():
+        try:
+            raw = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+        except Exception:  # noqa: BLE001
+            raw = {}
+        if "engine" in raw:
+            engine = str(raw.get("engine") or "").strip().lower()
+            if engine in ENGINES:
+                return engine
     env_engine = config.env("JT_LLM_ENGINE", "browser").strip().lower()
     if env_engine in ENGINES:
         return env_engine

@@ -28,15 +28,27 @@ def _anthropic_key() -> str:
     return config.anthropic_api_key()
 
 
+def _mask_key(key: str) -> str:
+    """Short fingerprint for status UIs (never log the full secret)."""
+    key = (key or "").strip()
+    if len(key) < 12:
+        return "(set)" if key else ""
+    return f"{key[:7]}…{key[-4:]}"
+
+
 def provider_ready(provider: str) -> tuple[bool, str]:
     """Return (ok, human message) for dashboard / CLI status."""
     if provider == "openai":
-        if _openai_key():
-            return True, f"OpenAI API ready (model {config.openai_model()})"
+        key = _openai_key()
+        if key:
+            return True, f"OpenAI API ready ({_mask_key(key)}, model {config.openai_model()})"
         return False, "Set OPENAI_API_KEY in .env"
     if provider == "anthropic":
-        if _anthropic_key():
-            return True, f"Anthropic API ready (model {config.anthropic_model()})"
+        key = _anthropic_key()
+        if key:
+            return True, (
+                f"Anthropic API ready ({_mask_key(key)}, model {config.anthropic_model()})"
+            )
         return False, "Set ANTHROPIC_API_KEY in .env"
     return False, f"Unknown API provider: {provider}"
 
@@ -134,6 +146,13 @@ def _anthropic_chat(messages: list[dict[str, str]], *, temperature: float,
     return _anthropic_parse(r)
 
 
+def _anthropic_error_message(payload: dict | None, r: httpx.Response) -> str:
+    err = (payload or {}).get("error") if isinstance(payload, dict) else None
+    if isinstance(err, dict):
+        return str(err.get("message") or err.get("type") or "")[:300]
+    return (r.text or "")[:200]
+
+
 def _anthropic_parse(r: httpx.Response) -> str:
     try:
         payload = r.json()
@@ -142,10 +161,24 @@ def _anthropic_parse(r: httpx.Response) -> str:
     if r.status_code == 401:
         raise LLMError("Anthropic API key is invalid or revoked (401).", "api_auth")
     if r.status_code == 429:
-        msg = (payload or {}).get("error", {}).get("message") or r.text[:200]
+        msg = _anthropic_error_message(payload, r)
         raise LLMError(f"Anthropic rate limit (429): {msg}", "api_rate_limit")
     if r.status_code >= 400:
-        msg = (payload or {}).get("error", {}).get("message") or r.text[:200]
+        msg = _anthropic_error_message(payload, r)
+        low = msg.lower()
+        if "identity verification" in low or "verify your identity" in low:
+            raise LLMError(
+                "Anthropic requires identity verification for this API key. "
+                "Complete verification at https://console.anthropic.com/settings/limits "
+                "then retry `jt llm test anthropic`.",
+                "api_auth",
+            )
+        if "credit" in low or "billing" in low or "purchase" in low:
+            raise LLMError(
+                f"Anthropic billing/credits issue: {msg}. "
+                "Check https://console.anthropic.com/settings/billing",
+                "api_auth",
+            )
         raise LLMError(f"Anthropic error (HTTP {r.status_code}): {msg}", "api_error")
     blocks = (payload or {}).get("content") or []
     texts = [b.get("text", "") for b in blocks if isinstance(b, dict) and b.get("type") == "text"]

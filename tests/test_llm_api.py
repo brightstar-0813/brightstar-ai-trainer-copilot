@@ -48,9 +48,31 @@ def test_browser_keeps_explicit_gpt_and_claude(clean_keys, monkeypatch):
 
 def test_sidebar_browser_session_routes_browser_tasks(clean_keys, monkeypatch):
     save_prefs(engine="browser", browser="claude")
+    assert llm_client.session_routes_tasks() is True
     assert llm_client.route_provider("gpt") == "claude"
     assert llm_client.route_provider("gpt", explicit=True) == "gpt"
     assert llm_client.route_provider("openai") == "openai"
+
+
+def test_api_engine_ignores_sidebar_session(clean_keys, monkeypatch):
+    monkeypatch.setattr(config, "anthropic_api_key", lambda: "ant-test")
+    save_prefs(engine="anthropic", browser="gpt")
+    assert llm_client.session_routes_tasks() is False
+    assert llm_client.route_provider("auto") == "anthropic"
+    assert llm_client.route_provider("browser") == "anthropic"
+
+
+def test_locked_browser_engine_not_overridden_by_session(clean_keys, monkeypatch):
+    save_prefs(engine="gpt", browser="claude")
+    # save_prefs keeps Session locked to the gpt/claude engine.
+    assert llm_client.preferred_browser() == "gpt"
+    from jt.llm import prefs as llm_prefs
+
+    path = llm_prefs.prefs_path()
+    raw = path.read_text(encoding="utf-8")
+    path.write_text(raw.replace("browser: gpt", "browser: claude"), encoding="utf-8")
+    assert llm_client.route_provider("auto") == "gpt"
+    assert llm_client.session_routes_tasks() is True
 
 
 def test_prefs_override_auto(clean_keys, monkeypatch):

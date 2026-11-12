@@ -52,6 +52,13 @@ def llm_status() -> None:
     st = status_summary()
     rprint(f"Preferred engine: [bold]{st['preferred']}[/bold]  ({st['preferred_label']})")
     rprint(f"Active for jobs:  [bold]{st.get('active', st['resolved_auto'])}[/bold]")
+    if st.get("session_routes"):
+        rprint(
+            f"Browser session: [bold]{st.get('browser_label', st.get('browser'))}[/bold]  "
+            "(sidebar Session routes browser tasks)"
+        )
+    else:
+        rprint("Browser session: [dim]unused (API/manual engine)[/dim]")
     rprint(f"Auto resolves to: [bold]{st['resolved_auto']}[/bold]")
     o, a = st["openai"], st["anthropic"]
     rprint(f"OpenAI:    [{'green' if o['ok'] else 'yellow'}]{o['detail']}[/]")

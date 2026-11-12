@@ -29,7 +29,7 @@ sys.path.insert(0, str(DASHBOARD_DIR))
 
 from jt import config, db  # noqa: E402
 from jt.llm.browser_session import prepare_browser  # noqa: E402
-from jt.llm.client import status_summary  # noqa: E402
+from jt.llm.client import session_routes_tasks, status_summary  # noqa: E402
 from jt.llm.errors import LLMError  # noqa: E402
 import jt.llm.prefs as _prefs  # noqa: E402
 import jt.schemas as _schemas  # noqa: E402
@@ -511,11 +511,40 @@ def _bg_log_tail(label: str, n: int = 4000) -> str:
     return log.read_text(encoding="utf-8", errors="ignore")[-n:]
 
 
+def _bg_failure_hint(log_tail: str) -> str:
+    """Pull a short actionable error from a failed task log."""
+    lines = [ln.strip() for ln in (log_tail or "").splitlines() if ln.strip()]
+    if not lines:
+        return "see Tasks log"
+
+    def _clean(text: str) -> str:
+        hint = text
+        if hint.lower().startswith("llm error"):
+            hint = hint.split(":", 1)[-1].strip() if ":" in hint else hint
+        # Drop the error-code prefix like "(api_auth)".
+        if hint.startswith("(") and ")" in hint:
+            hint = hint.split(")", 1)[-1].strip()
+        return hint[:160] + ("…" if len(hint) > 160 else "")
+
+    for text in reversed(lines):
+        low = text.lower()
+        if low.startswith("traceback") or low.startswith("file \""):
+            continue
+        if "llm error" in low or text.startswith("Error") or "failed" in low:
+            return _clean(text)
+    for text in reversed(lines):
+        low = text.lower()
+        if low.startswith("traceback") or low.startswith("file \""):
+            continue
+        return _clean(text)
+    return "see Tasks log"
+
+
 def _bg_finish_summary(label: str, code: int, log_tail: str = "") -> str:
     """Short toast line for a finished background task."""
     title = label[:1].upper() + label[1:] if label else "Task"
     if code != 0:
-        return f"{title} failed (exit {code}) — see Tasks log"
+        return f"{title} failed (exit {code}) — {_bg_failure_hint(log_tail)}"
     tail = log_tail or ""
     # Prefer the last informative collect / discover line.
     for pat in (
@@ -725,7 +754,8 @@ def page_overview() -> None:
         "AI engine",
         func="jt llm status",
         icon=":material/psychology:",
-        lede="Preferred engine for auto tasks. Save writes `data/llm_prefs.yaml`.",
+        lede="Single source of truth for analyze / tailor / teaching. "
+        "Sidebar Session only applies for browser modes.",
     ):
         llm = status_summary()
         labels = [ENGINE_LABELS[e] for e in ENGINES]
@@ -745,12 +775,17 @@ def page_overview() -> None:
         if refresh_col.button("Refresh status", icon=":material/refresh:", width="stretch"):
             st.rerun()
         active = llm.get("active") or llm["resolved_auto"]
-        st.caption(
-            f"Engine **{llm['preferred']}** → active backend **{active}**. "
-            f"With **browser**, tasks use ChatGPT/Claude tabs (config/models.yaml). "
-            f"**auto** probe → **{llm['resolved_auto']}**. "
-            "API keys optional. Save → `jt llm engine`."
-        )
+        if llm.get("session_routes"):
+            st.caption(
+                f"Engine **{llm['preferred']}** → Session **{llm.get('browser_label', '—')}** "
+                f"→ active **{active}**. Change ChatGPT/Claude in the sidebar Session."
+            )
+        else:
+            st.caption(
+                f"Engine **{llm['preferred']}** → active **{active}** (API/manual). "
+                f"Sidebar Session is unused until you pick a browser engine. "
+                f"**auto** probe → **{llm['resolved_auto']}**."
+            )
 
         o, a, b = llm["openai"], llm["anthropic"], llm["bridge"] or {}
         s1, s2, s3 = st.columns(3)
@@ -2936,18 +2971,48 @@ st.sidebar.markdown(
 """,
     unsafe_allow_html=True,
 )
-_browser_now = load_prefs()["browser"]
-if "browser_session" not in st.session_state:
-    st.session_state["browser_session"] = BROWSER_LABELS.get(_browser_now, "ChatGPT")
-_browser_pick = st.sidebar.selectbox(
-    "Session",
-    [BROWSER_LABELS[b] for b in BROWSERS],
-    key="browser_session",
-    help="Opens in a tab of this browser when a build needs it.",
-)
-_browser_chosen = BROWSERS[[BROWSER_LABELS[b] for b in BROWSERS].index(_browser_pick)]
-if _browser_chosen != _browser_now:
-    save_prefs(browser=_browser_chosen)
+_prefs_now = load_prefs()
+_engine_now = _prefs_now["engine"]
+_browser_now = _prefs_now["browser"]
+_session_on = session_routes_tasks()
+if _session_on:
+    if "browser_session" not in st.session_state:
+        st.session_state["browser_session"] = BROWSER_LABELS.get(_browser_now, "ChatGPT")
+    # Keep widget label synced when Overview saves engine=gpt/claude.
+    _expected_session = BROWSER_LABELS.get(_browser_now, "ChatGPT")
+    if st.session_state.get("browser_session") != _expected_session and _engine_now in BROWSERS:
+        st.session_state["browser_session"] = _expected_session
+    _browser_pick = st.sidebar.selectbox(
+        "Session",
+        [BROWSER_LABELS[b] for b in BROWSERS],
+        key="browser_session",
+        help="ChatGPT or Claude tab used when the AI engine is a browser mode.",
+    )
+    _browser_chosen = BROWSERS[[BROWSER_LABELS[b] for b in BROWSERS].index(_browser_pick)]
+    if _browser_chosen != _browser_now:
+        # Locked gpt/claude engines stay aligned with Session; flexible browser/auto only store Session.
+        if _engine_now in BROWSERS:
+            save_prefs(browser=_browser_chosen, engine=_browser_chosen)
+        else:
+            save_prefs(browser=_browser_chosen)
+        st.rerun()
+else:
+    if _engine_now == "openai":
+        _active_label = "OpenAI API"
+    elif _engine_now == "anthropic":
+        _active_label = "Anthropic API"
+    elif _engine_now == "manual":
+        _active_label = "Manual paste"
+    elif _engine_now == "auto":
+        _active_label = ENGINE_LABELS.get("auto", "Auto (API)")
+    else:
+        _active_label = ENGINE_LABELS.get(_engine_now, _engine_now)
+    st.sidebar.markdown("**Session**")
+    st.sidebar.caption(
+        f"Using **{_active_label}** — Session unused. "
+        "Pick a browser engine on Overview to use ChatGPT/Claude tabs."
+    )
+    st.session_state.pop("browser_session", None)
 _active_now = get_active_profile()
 _profile_names = list_profiles()
 if _profile_names:

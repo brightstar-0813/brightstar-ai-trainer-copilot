@@ -94,6 +94,9 @@ def save_prefs(
         data["engine"] = engine
     if browser is not None:
         data["browser"] = _browser_name(browser)
+    # Locked ChatGPT/Claude engines always match Session (no divergent prefs).
+    if data["engine"] in BROWSERS:
+        data["browser"] = data["engine"]
     if resume_template is not None:
         data["resume_template"] = str(resume_template or "ats-modern").strip() or "ats-modern"
     if resume_accent is not None:

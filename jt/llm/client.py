@@ -151,15 +151,37 @@ def resolve_provider(configured: str | None) -> str:
     return "claude"
 
 
-def route_provider(configured: str | None, *, explicit: bool = False) -> str:
-    """Resolve a task provider. The sidebar session picks ChatGPT or Claude.
+def session_routes_tasks() -> bool:
+    """True when the sidebar ChatGPT/Claude Session pick actually routes work.
 
-    An explicit provider argument, such as `jt bridge test gpt`, stays as given.
+    API engines and auto→API ignore Session so the UI can hide or disable it.
+    """
+    pref = normalize_provider(preferred_engine())
+    if pref in ("openai", "anthropic", "manual"):
+        return False
+    if pref in ("gpt", "claude", "browser"):
+        return True
+    if pref == "auto":
+        return resolve_provider("auto") in ("gpt", "claude")
+    return False
+
+
+def route_provider(configured: str | None, *, explicit: bool = False) -> str:
+    """Resolve a task provider.
+
+    Sidebar Session (ChatGPT vs Claude) only remaps when the preferred engine is
+    a flexible browser mode (`browser` / `auto`). Locked engines (`gpt`, `claude`,
+    API) and explicit CLI providers stay as resolved.
     """
     prov = resolve_provider(configured)
     if explicit or prov not in ("gpt", "claude"):
         return prov
-    return preferred_browser()
+    pref = normalize_provider(preferred_engine())
+    if pref in ("gpt", "claude"):
+        return pref
+    if pref in ("browser", "auto") and session_routes_tasks():
+        return preferred_browser()
+    return prov
 
 
 def render_prompt(task: str, **vars) -> str:
@@ -319,10 +341,14 @@ def ask_json(task: str, schema: type[T], prompt_vars: dict | None = None, *, pro
 
 def status_summary() -> dict:
     """Snapshot of engines for dashboard / `jt llm status`."""
-    from .prefs import ENGINE_LABELS
+    from .prefs import BROWSER_LABELS, ENGINE_LABELS
 
     preferred = preferred_engine()
     resolved = resolve_provider("auto")
+    # What auto tasks actually hit (honors Session when it applies).
+    active = route_provider("auto" if preferred in ("browser", "auto") else preferred)
+    session_on = session_routes_tasks()
+    browser = preferred_browser()
     openai_ok, openai_msg = api_llm.provider_ready("openai")
     anthropic_ok, anthropic_msg = api_llm.provider_ready("anthropic")
     bridge = None
@@ -337,7 +363,10 @@ def status_summary() -> dict:
         "preferred": preferred,
         "preferred_label": ENGINE_LABELS.get(preferred, preferred),
         "resolved_auto": resolved,
-        "active": resolve_provider(preferred if preferred != "browser" else "auto"),
+        "active": active,
+        "session_routes": session_on,
+        "browser": browser,
+        "browser_label": BROWSER_LABELS.get(browser, browser),
         "openai": {"ok": openai_ok, "detail": openai_msg, "model": config.openai_model()},
         "anthropic": {"ok": anthropic_ok, "detail": anthropic_msg, "model": config.anthropic_model()},
         "bridge": bridge,

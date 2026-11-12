@@ -29,13 +29,17 @@ sys.path.insert(0, str(DASHBOARD_DIR))
 
 from jt import config, db  # noqa: E402
 from jt.llm.browser_session import prepare_browser  # noqa: E402
-from jt.llm.client import session_routes_tasks, status_summary  # noqa: E402
 from jt.llm.errors import LLMError  # noqa: E402
+import jt.llm.client as _llm_client  # noqa: E402
 import jt.llm.prefs as _prefs  # noqa: E402
 import jt.schemas as _schemas  # noqa: E402
 
+# Streamlit keeps jt.* in sys.modules across reruns; reload so dashboard picks up
+# newly added helpers (session_routes_tasks, parse_profile_dump, …) without a full restart.
 importlib.reload(_prefs)
+importlib.reload(_llm_client)
 importlib.reload(_schemas)
+from jt.llm.client import session_routes_tasks, status_summary  # noqa: E402
 from jt.llm.prefs import (  # noqa: E402
     BROWSER_LABELS,
     BROWSERS,
@@ -54,8 +58,6 @@ from jt.pipelines import resume_edit as re_edit  # noqa: E402
 from jt.pipelines import samples as sm  # noqa: E402
 from jt.pipelines import tailor as tl  # noqa: E402
 
-# Streamlit keeps jt.* in sys.modules across reruns; reload so dashboard picks up
-# newly added pipeline helpers (e.g. parse_profile_dump) without a full restart.
 importlib.reload(sm)
 importlib.reload(re_edit)
 from jt.render.resume import render_docx, render_html, render_pdf  # noqa: E402

@@ -49,7 +49,7 @@ LinkedIn **job** collection is not supported.
 | Set engine | `jt llm engine auto\|openai\|anthropic\|claude\|gpt\|manual` |
 | Test current engine | `jt llm test` |
 | Find which ATS each company uses | `jt sources discover` |
-| Collect jobs (public ATS boards) | `jt collect` |
+| Fetch US-remote AI-trainer jobs (Handshake/Mercor/Scale/…, ~30 days) | `jt collect --rediscover --broad --mercor` |
 | Build a named profile from a resume | `jt profile import --name jane --resume cv.pdf` (then edit `profile/people/jane.yaml`) |
 | Switch active profile | `jt profile use jane` / `jt profile list` |
 | Analyze + score jobs | `jt analyze --all-new --limit 10`, then `jt rank` |

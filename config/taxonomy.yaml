@@ -90,18 +90,41 @@ relevance:
     - sme
     - domain expert
     - expert reviewer
+    - expert contributor
+    - expert
+    - talent network
     - ai quality
     - quality reviewer
     - ai reviewer
     - ai writer
     - ai expert
     - ai specialist
+    - ai contractor
+    - llm trainer
+    - model trainer
     - human data
     - freelance ai
     - coding specialist
     - math specialist
     - evaluator
     - rater
+    - tasker
+    - contributor
+    - labeling specialist
+    - data specialist
+    - knowledge expert
+    - professional expert
+    - independent contractor
+    - contractor - ai
+  # Always drop unless a strong trainer keyword also appears in the title.
+  hard_exclude_title_keywords:
+    - recruiter
+    - recruiting
+    - sourcer
+    - talent acquisition
+    - talent partner
+    - account executive
+    - account manager
   exclude_title_keywords:
     - recruiter
     - recruiting
@@ -153,4 +176,82 @@ relevance:
     - evaluate model
     - ai training
     - prompt
+    - subject matter expert
+    - domain expert
+    - preference ranking
+    - human feedback
+    - label data
+    - rate responses
+
+# Collect filter: keep only remote roles US candidates can apply to / work from.
+# Matching is whole-word / phrase, case-insensitive (same as relevance).
+eligibility:
+  remote_keywords:
+    - remote
+    - remotely
+    - work from home
+    - work-from-home
+    - wfh
+    - distributed
+    - anywhere
+  us_positive_keywords:
+    - united states
+    - u.s.
+    - u.s.a.
+    - usa
+    - us only
+    - us-based
+    - us based
+    - based in the us
+    - based in the united states
+    - located in the us
+    - located in the united states
+    - work authorization in the us
+    - authorized to work in the us
+    - authorized to work in the united states
+    - must be in the us
+    - must live in the us
+    - remote us
+    - remote - us
+    - remote (us)
+    - us remote
+  # Location-only foreign markers (reject unless location also has a US positive).
+  foreign_geo_keywords:
+    - emea
+    - apac
+    - latam
+    - india
+    - philippines
+    - pakistan
+    - bangladesh
+    - nigeria
+    - kenya
+    - europe
+    - european union
+    - united kingdom
+    - uk only
+    - canada only
+    - australia
+    - new zealand
+    - singapore
+    - germany
+    - france
+    - netherlands
+    - ireland
+    - poland
+    - spain
+    - brazil
+    - mexico
+    - argentina
+    - colombia
+    - chile
+  us_exclude_keywords:
+    - not available in the us
+    - not open to us
+    - us candidates not eligible
+    - outside the united states only
+    - excluding the us
+    - excluding the united states
+    - non-us only
+    - non us only
 

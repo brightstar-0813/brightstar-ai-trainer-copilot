@@ -1,20 +1,36 @@
 # Where jobs come from. Public ATS boards only — LinkedIn job scraping is not supported.
+#
+# `slugs` are guesses; `jt sources discover` (also run by Fetch) probes Greenhouse/Lever/Ashby
+# and caches hits in data/verified_boards.json for `jt collect`.
 
-# Public ATS boards (no login). `slugs` are guesses; run `jt sources discover` to see which ones exist
-# and on which ATS. Verified boards are cached in data/verified_boards.json and used by `jt collect`.
+collect:
+  # Drop postings older than this many days (unknown dates are kept).
+  max_age_days: 30
+
+# Always collect these boards (in addition to slug discovery). Critical AI-training sources.
+boards:
+  - { company: Handshake, ats: ashby, slug: Handshake }
+  - { company: Surge AI, ats: ashby, slug: surge-ai }
+  - { company: Scale AI, ats: greenhouse, slug: scaleai }
+  - { company: xAI, ats: greenhouse, slug: xai }
+  - { company: Mercor Staff, ats: ashby, slug: mercor }
+  - { company: Labelbox, ats: greenhouse, slug: labelbox }
+  - { company: OpenAI, ats: greenhouse, slug: openai }
+  - { company: Anthropic, ats: greenhouse, slug: anthropic }
+
+# AI-training / RLHF / annotation / domain-expert marketplaces + labs across industries.
+# Mercor *expert* contract roles come from work.mercor.com via `jt collect --mercor` (not ATS).
 companies:
+  # Core AI-data / trainer marketplaces
   - { name: Scale AI,          slugs: [scaleai, scale] }
-  - { name: Surge AI,          slugs: [surgeai, surge-ai, surge] }
+  - { name: Surge AI,          slugs: [surge-ai, surgeai, surge] }
   - { name: Invisible,         slugs: [invisibletech, invisible, invisible-technologies] }
   - { name: Turing,            slugs: [turing, turing-com] }
   - { name: Labelbox,          slugs: [labelbox] }
-  - { name: Mercor,            slugs: [mercor] }
-  - { name: xAI,               slugs: [xai, x-ai] }
-  - { name: Handshake,         slugs: [handshake, joinhandshake] }
+  - { name: Mercor Staff,      slugs: [mercor] }
+  - { name: Handshake,         slugs: [Handshake, handshake, joinhandshake] }
   - { name: Micro1,            slugs: [micro1] }
-  - { name: Anthropic,         slugs: [anthropic] }
-  - { name: OpenAI,            slugs: [openai] }
-  - { name: Cohere,            slugs: [cohere] }
+  - { name: Alignerr,          slugs: [alignerr] }
   - { name: Snorkel AI,        slugs: [snorkelai, snorkel-ai] }
   - { name: Appen,             slugs: [appen] }
   - { name: TELUS Digital,     slugs: [telusdigital, telus-digital] }
@@ -23,10 +39,65 @@ companies:
   - { name: Toloka,            slugs: [toloka] }
   - { name: Sepal AI,          slugs: [sepal, sepalai] }
   - { name: Datacurve,         slugs: [datacurve] }
+  - { name: SuperAnnotate,     slugs: [superannotate] }
+  - { name: Hive,              slugs: [hive, hiveai, thehiveai] }
+  - { name: CloudFactory,      slugs: [cloudfactory] }
+  - { name: Defined AI,        slugs: [definedai, defined-ai] }
+  - { name: Sama,              slugs: [sama] }
+  - { name: RWS,               slugs: [rws] }
+  - { name: TransPerfect,      slugs: [transperfect] }
+  - { name: Lionbridge,        slugs: [lionbridge] }
+  - { name: Mindrift,          slugs: [mindrift] }
+  - { name: DataForce,         slugs: [dataforce, data-force] }
+  - { name: Remotasks,         slugs: [remotasks] }
+  - { name: Outlier,           slugs: [outlier, outlierai] }
 
-# Career pages without a public ATS API (collected with the generic Playwright extractor).
+  # Frontier labs / model companies (often post eval / research contractor roles)
+  - { name: OpenAI,            slugs: [openai] }
+  - { name: Anthropic,         slugs: [anthropic] }
+  - { name: xAI,               slugs: [xai, x-ai] }
+  - { name: Cohere,            slugs: [cohere] }
+  - { name: Mistral AI,        slugs: [mistral, mistralai] }
+  - { name: Perplexity,        slugs: [perplexity, perplexityai] }
+  - { name: Character AI,      slugs: [characterai, character-ai] }
+  - { name: Adept,             slugs: [adept, adeptai] }
+  - { name: Inflection,        slugs: [inflection, inflectionai] }
+  - { name: Together AI,       slugs: [togetherai, together-ai] }
+  - { name: Writer,            slugs: [writer, writercom] }
+  - { name: Hugging Face,      slugs: [huggingface, hugging-face] }
+  - { name: Stability AI,      slugs: [stabilityai, stability] }
+  - { name: Midjourney,        slugs: [midjourney] }
+  - { name: Runway,            slugs: [runway, runwayml] }
+  - { name: ElevenLabs,        slugs: [elevenlabs] }
+  - { name: Glean,             slugs: [glean] }
+  - { name: Harvey,            slugs: [harvey, harveyai] }
+  - { name: EvenUp,            slugs: [evenup] }
+  - { name: Abridge,           slugs: [abridge] }
+  - { name: Tempus,            slugs: [tempus] }
+  - { name: Recursion,         slugs: [recursion, recursionpharma] }
+
+  # Big tech / platforms that sometimes list human-data or eval contractor work
+  - { name: Meta,              slugs: [meta, facebook, metacareers] }
+  - { name: Google,            slugs: [google, googledeepmind, deepmind] }
+  - { name: Microsoft,         slugs: [microsoft] }
+  - { name: Amazon,            slugs: [amazon, amazongroup] }
+  - { name: Apple,             slugs: [apple] }
+  - { name: NVIDIA,            slugs: [nvidia] }
+  - { name: Databricks,        slugs: [databricks] }
+  - { name: Snowflake,         slugs: [snowflake] }
+  - { name: Palantir,          slugs: [palantir] }
+  - { name: Stripe,            slugs: [stripe] }
+  - { name: Ramp,              slugs: [ramp] }
+  - { name: Notion,            slugs: [notion] }
+  - { name: Figma,             slugs: [figma] }
+  - { name: Canva,             slugs: [canva] }
+  - { name: Duolingo,          slugs: [duolingo] }
+  - { name: Khan Academy,      slugs: [khanacademy, khan-academy] }
+  - { name: Coursera,          slugs: [coursera] }
+  - { name: Chegg,             slugs: [chegg] }
+
+# Career pages without a public ATS API (optional Playwright extractor — unused by default).
 pages: []
-  # - { name: Outlier, url: "https://outlier.ai/careers", link_pattern: "/jobs/" }
 
 http:
   timeout_seconds: 25

@@ -619,16 +619,32 @@ def page_overview() -> None:
     boards, analyze = st.columns(2, gap="medium")
     with boards:
         with section_box(
-            "Collect jobs",
-            func="jt collect",
+            "Fetch jobs",
+            func="jt collect --rediscover --broad --mercor",
             icon=":material/download:",
-            lede="Pull new ATS postings, or discover company slugs.",
+            lede="Handshake, Mercor, Scale, Surge, xAI + other boards. US-remote, last ~30 days.",
         ):
-            if st.button("Collect from ATS boards", icon=":material/download:", width="stretch"):
-                run_bg("collect ats", "collect")
-            if st.button("Discover ATS slugs", icon=":material/search:", width="stretch"):
+            if st.button(
+                "Fetch AI trainer jobs",
+                type="primary",
+                icon=":material/download:",
+                width="stretch",
+            ):
+                # Rediscover boards + Mercor experts; max recall (US remote + ~30 days).
+                run_bg(
+                    "fetch jobs",
+                    "collect",
+                    "--rediscover",
+                    "--broad",
+                    "--ats",
+                    "--mercor",
+                    "--us-remote-only",
+                    "--max-age-days",
+                    "30",
+                )
+            if st.button("Discover ATS slugs only", icon=":material/search:", width="stretch"):
                 run_bg("sources discover", "sources", "discover")
-            st.caption("Discover → `jt sources discover`")
+            st.caption("Includes Mercor expert marketplace + pinned Handshake/Surge/Scale/xAI boards.")
     with analyze:
         with section_box(
             "Analyze new jobs",

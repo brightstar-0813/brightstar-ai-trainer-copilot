@@ -49,8 +49,21 @@ def _title_hit(title: str) -> bool:
 
 
 def _excluded(title: str) -> bool:
+    """Hard excludes always apply unless a strong title keyword hits.
+
+    Soft excludes (engineer, consultant, …) are ignored when any trainer/SME
+    title keyword is present so industry domain-expert roles are kept.
+    """
     rel = _tax().get("relevance", {})
     if _hits(title, rel.get("strong_title_keywords", [])):
+        return False
+    hard = rel.get("hard_exclude_title_keywords") or [
+        "recruiter", "recruiting", "sourcer", "talent acquisition", "talent partner",
+        "account executive", "account manager", "sales", "marketing",
+    ]
+    if _hits(title, hard) > 0:
+        return True
+    if _title_hit(title):
         return False
     return _hits(title, rel.get("exclude_title_keywords", [])) > 0
 

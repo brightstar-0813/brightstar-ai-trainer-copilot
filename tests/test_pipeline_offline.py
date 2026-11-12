@@ -195,7 +195,8 @@ def env(tmp_path, monkeypatch):
     monkeypatch.setattr("jt.pipelines.samples.render_pdf", _fake_pdf)
     FakeBC.calls.clear()
     FakeBC.first_job_analyze_garbage = False
-    st = store([RawJob(source="x", external_id="1", title="AI Tutor, Math", company="Acme", pay="$45/hour",
+    st = store([RawJob(source="x", external_id="1", title="AI Tutor, Math", company="Acme",
+                       location="Remote - United States", pay="$45/hour",
                        description="Rank answers for RLHF. Requires a math Master's.")])
     assert st.new == 1
     example = Path(__file__).parent.parent / "profile" / "profile.example.yaml"

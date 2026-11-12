@@ -7,7 +7,7 @@ from typing import Iterable
 import httpx
 
 from .. import config
-from .base import RawJob, clean_pay, find_pay, html_to_text
+from .base import RawJob, clean_pay, find_pay, html_to_text, posted_iso
 
 VERIFIED_PATH = config.DATA_DIR / "verified_boards.json"
 
@@ -19,14 +19,44 @@ def _client() -> httpx.Client:
 
 
 # ---------------------------------------------------------------- parsers (pure, unit-tested)
+def _workplace_from_ashby(j: dict) -> str:
+    if j.get("isRemote") is True:
+        return "remote"
+    wt = (j.get("workplaceType") or j.get("employmentType") or "").strip().lower()
+    if "remote" in wt:
+        return "remote"
+    if "hybrid" in wt:
+        return "hybrid"
+    if "onsite" in wt or "on-site" in wt or "office" in wt:
+        return "onsite"
+    return wt
+
+
+def _workplace_from_greenhouse(j: dict, loc: str) -> str:
+    for m in j.get("metadata") or []:
+        if str(m.get("name", "")).lower() in {"location type", "workplace type", "workplace"}:
+            val = str(m.get("value") or "").strip().lower()
+            if "remote" in val:
+                return "remote"
+            if "hybrid" in val:
+                return "hybrid"
+            if "on-site" in val or "onsite" in val or "office" in val:
+                return "onsite"
+    return "remote" if "remote" in loc.lower() else ""
+
+
 def parse_greenhouse(company: str, data: dict) -> list[RawJob]:
     out = []
     for j in data.get("jobs", []):
         desc = html_to_text(j.get("content", ""))
+        loc = (j.get("location") or {}).get("name", "")
+        # Prefer first_published for recency; updated_at churns on edits.
+        posted = posted_iso(j.get("first_published") or j.get("updated_at") or j.get("created_at"))
         out.append(RawJob(
             source="greenhouse", external_id=str(j["id"]), title=j.get("title", ""), company=company,
-            location=(j.get("location") or {}).get("name", ""), url=j.get("absolute_url", ""),
-            description=desc, posted=(j.get("updated_at") or "")[:10], pay=find_pay(desc)))
+            location=loc, url=j.get("absolute_url", ""),
+            description=desc, posted=posted, pay=find_pay(desc),
+            workplace=_workplace_from_greenhouse(j, loc)))
     return out
 
 
@@ -39,10 +69,12 @@ def parse_lever(company: str, data: list) -> list[RawJob]:
         desc += "\n\n" + (j.get("additionalPlain") or "")
         sal = j.get("salaryRange") or {}
         pay = f"{sal.get('min')}-{sal.get('max')} {sal.get('currency', '')} {sal.get('interval', '')}".strip() if sal else find_pay(desc)
+        wt = (j.get("workplaceType") or "").strip().lower()
         out.append(RawJob(
             source="lever", external_id=str(j["id"]), title=j.get("text", ""), company=company,
             location=(j.get("categories") or {}).get("location", "") or "", url=j.get("hostedUrl", ""),
-            description=desc.strip(), posted=str(j.get("createdAt", ""))[:10], pay=pay))
+            description=desc.strip(), posted=posted_iso(j.get("createdAt")), pay=pay,
+            workplace=wt))
     return out
 
 
@@ -56,7 +88,8 @@ def parse_ashby(company: str, data: dict) -> list[RawJob]:
         out.append(RawJob(
             source="ashby", external_id=str(j["id"]), title=j.get("title", ""), company=company,
             location=j.get("location", "") or "", url=j.get("jobUrl", ""), description=desc,
-            posted=(j.get("publishedAt") or "")[:10], pay=clean_pay(comp) or find_pay(desc)))
+            posted=posted_iso(j.get("publishedAt") or j.get("updatedAt")),
+            pay=clean_pay(comp) or find_pay(desc), workplace=_workplace_from_ashby(j)))
     return out
 
 
@@ -83,22 +116,62 @@ def fetch_board(client: httpx.Client, ats: str, slug: str, company: str) -> list
         return None
 
 
+def _pin_boards(cfg: dict) -> list[dict]:
+    """Always-on (company, ats, slug) rows from sources.yaml `boards:`."""
+    out = []
+    for b in cfg.get("boards") or []:
+        if not b.get("ats") or not b.get("slug"):
+            continue
+        out.append({
+            "company": b.get("company") or b["slug"],
+            "ats": b["ats"],
+            "slug": b["slug"],
+            "open_jobs": b.get("open_jobs", 0),
+            "pinned": True,
+        })
+    return out
+
+
 def discover() -> list[dict]:
-    """Probe every company slug against each ATS; cache hits in data/verified_boards.json."""
+    """Probe company slugs against each ATS; keep *all* working boards (not just the first).
+
+    Also merges pinned `boards:` from sources.yaml. Cache → data/verified_boards.json.
+    """
     cfg = config.load_yaml("sources.yaml")
     found: list[dict] = []
+    seen: set[tuple[str, str, str]] = set()
     with _client() as client:
+        for pin in _pin_boards(cfg):
+            key = (pin["company"], pin["ats"], pin["slug"])
+            jobs = fetch_board(client, pin["ats"], pin["slug"], pin["company"])
+            if jobs is None:
+                # Keep the pin anyway so collect still tries later / reports missing.
+                found.append({**pin, "open_jobs": 0})
+                seen.add(key)
+                continue
+            found.append({**pin, "open_jobs": len(jobs)})
+            seen.add(key)
         for c in cfg.get("companies", []):
-            hit = None
+            company_hits = 0
             for slug in c["slugs"]:
                 for ats in ENDPOINTS:
+                    key = (c["name"], ats, slug)
+                    if key in seen:
+                        continue
                     jobs = fetch_board(client, ats, slug, c["name"])
-                    if jobs is not None:
-                        hit = {"company": c["name"], "ats": ats, "slug": slug, "open_jobs": len(jobs)}
-                        break
-                if hit:
-                    break
-            found.append(hit or {"company": c["name"], "ats": None, "slug": None, "open_jobs": 0})
+                    if jobs is None:
+                        continue
+                    found.append({
+                        "company": c["name"], "ats": ats, "slug": slug,
+                        "open_jobs": len(jobs), "pinned": False,
+                    })
+                    seen.add(key)
+                    company_hits += 1
+            if company_hits == 0:
+                found.append({
+                    "company": c["name"], "ats": None, "slug": None,
+                    "open_jobs": 0, "pinned": False,
+                })
     config.ensure_dirs()
     VERIFIED_PATH.write_text(json.dumps(found, indent=2), encoding="utf-8")
     return found

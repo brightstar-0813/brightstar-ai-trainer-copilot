@@ -152,31 +152,80 @@ app.add_typer(sources_app, name="sources")
 def sources_discover() -> None:
     """Find which ATS (Greenhouse/Lever/Ashby) each configured company uses."""
     from .sources.ats import discover
-    table = Table("company", "ats", "slug", "open jobs")
+    table = Table("company", "ats", "slug", "open jobs", "pinned")
     for row in discover():
-        table.add_row(row["company"], row["ats"] or "[red]not found[/red]", row["slug"] or "-", str(row["open_jobs"]))
+        table.add_row(
+            row["company"],
+            row["ats"] or "[red]not found[/red]",
+            row["slug"] or "-",
+            str(row["open_jobs"]),
+            "yes" if row.get("pinned") else "",
+        )
     rprint(table)
 
 
 @app.command()
 def collect(
-    ats: bool = typer.Option(True, help="Collect from public ATS boards"),
+    ats: bool = typer.Option(True, "--ats/--no-ats", help="Collect from public ATS boards"),
+    mercor: bool = typer.Option(True, "--mercor/--no-mercor", help="Collect Mercor expert marketplace listings"),
     keep_irrelevant: bool = typer.Option(False, help="Store jobs even if they do not look like AI-trainer work"),
+    us_remote_only: bool = typer.Option(
+        True,
+        "--us-remote-only/--all-locations",
+        help="Keep only remote roles US candidates can apply to (default)",
+    ),
+    max_age_days: int = typer.Option(
+        None,
+        help="Keep postings at most this many days old (default: sources.yaml collect.max_age_days, usually 30)",
+    ),
+    rediscover: bool = typer.Option(
+        False,
+        "--rediscover/--no-rediscover",
+        help="Re-probe all configured company slugs before collecting (slower, max coverage)",
+    ),
+    broad: bool = typer.Option(
+        False,
+        "--broad/--strict-titles",
+        help="Also keep jobs whose description looks like AI-training work (more recall across industries)",
+    ),
 ) -> None:
-    """Collect jobs from public ATS boards into the database.
+    """Collect AI-trainer jobs from ATS boards + Mercor into the database.
 
+    Default filters: AI-trainer relevance, US-eligible remote, posted within ~30 days.
     LinkedIn job collection is not supported (account-risk).
     """
+    from itertools import chain
+
     from .collect import store
+
+    streams = []
     if ats:
-        from .sources.ats import collect_all, verified_boards
-        if not verified_boards():
-            rprint("[yellow]No verified boards yet; running discovery first...[/yellow]")
-            from .sources.ats import discover
-            discover()
-        st = store(collect_all(), keep_irrelevant=keep_irrelevant)
-        rprint(f"[bold]ATS boards[/bold]: seen {st.seen}, not relevant {st.irrelevant}, "
-               f"duplicates {st.duplicates}, [green]new {st.new}[/green]")
+        from .sources.ats import collect_all, discover, verified_boards
+        if rediscover or not verified_boards():
+            rprint("[yellow]Discovering ATS boards across configured companies...[/yellow]")
+            rows = discover()
+            hits = sum(1 for r in rows if r.get("ats"))
+            rprint(f"Verified boards: {hits}/{len(rows)}")
+        streams.append(collect_all())
+    if mercor:
+        from .sources.mercor import collect_mercor
+        rprint("[yellow]Collecting Mercor expert listings...[/yellow]")
+        streams.append(collect_mercor())
+    if not streams:
+        rprint("[red]No sources selected.[/red]")
+        raise typer.Exit(1)
+    st = store(
+        chain.from_iterable(streams),
+        keep_irrelevant=keep_irrelevant,
+        us_remote_only=us_remote_only,
+        max_age_days=max_age_days,
+        strict=not broad,
+    )
+    rprint(
+        f"[bold]Collect[/bold]: seen {st.seen}, not relevant {st.irrelevant}, "
+        f"not US-remote {st.not_us_remote}, older than window {st.too_old}, "
+        f"duplicates {st.duplicates}, [green]new {st.new}[/green]"
+    )
 
 
 jobs_app = typer.Typer(help="Browse stored jobs", no_args_is_help=True)

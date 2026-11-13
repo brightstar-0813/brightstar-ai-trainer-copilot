@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 import re
+from datetime import date
 from pathlib import Path
 from typing import Any
 
@@ -58,6 +59,20 @@ _GENERIC_ORG = re.compile(
 _BANNED_INVENTED_EMPLOYERS: dict[str, str] = {
     "microsoft": "Oracle",
 }
+DEFAULT_YEARS_EXPERIENCE = 20
+MIN_YEARS_EXPERIENCE = 5
+MAX_YEARS_EXPERIENCE = 40
+
+
+def normalize_years_experience(value: Any, default: int = DEFAULT_YEARS_EXPERIENCE) -> int:
+    """Clamp invent-mode seniority years to a sane teaching range."""
+    try:
+        years = int(round(float(value)))
+    except (TypeError, ValueError):
+        years = int(default)
+    return max(MIN_YEARS_EXPERIENCE, min(MAX_YEARS_EXPERIENCE, years))
+
+
 # Map taxonomy domains to the closest teaching archetype when sample.archetype is free-text.
 _DOMAIN_TO_ARCHETYPE: dict[str, str] = {
     "coding": "swe_coder",
@@ -944,6 +959,7 @@ def suggest_sample(
     jd: str = "",
     profile_seed: dict | None = None,
     seed_mode: str = "last_company",
+    years_experience: int | float | str | None = None,
 ) -> tuple[SuggestedBenchmark, dict[str, str]]:
     """Build a teaching profile and resume for a virtual candidate.
 
@@ -951,12 +967,16 @@ def suggest_sample(
     When title is set, target_kind=role_domain and the whole career follows that role's domain.
     seed_mode=last_company invents peer employers/schools/creds (original teaching bar).
     seed_mode=provided locks employers/schools/creds to profile_seed; skills/bullets/projects may be generated.
+    years_experience sets the invent-mode seniority bar (ignored for provided seed timelines).
     When jd is set, also screens the resume vs the JD and may run one keyword-weave pass.
     """
     name, company = (name or "").strip(), (company or "").strip()
     if not name or not company:
         raise ValueError("candidate name and last company are required")
     mode = normalize_seed_mode(seed_mode)
+    years = normalize_years_experience(
+        years_experience if years_experience is not None else DEFAULT_YEARS_EXPERIENCE
+    )
     jd = (jd or "").strip()
     seed = normalize_profile_seed(profile_seed) if mode == "provided" else {}
     if mode == "provided" and not _seed_has_org_facts(seed):
@@ -973,6 +993,8 @@ def suggest_sample(
         "notes": (notes or "").strip(),
         "jd": jd,
         "seed_mode": mode,
+        "years_experience": years,
+        "career_start_year": date.today().year - years,
         "profile_seed": seed,
         "profile_seed_text": format_profile_seed_for_prompt(seed) if seed else "",
         "archetypes": archetypes(),

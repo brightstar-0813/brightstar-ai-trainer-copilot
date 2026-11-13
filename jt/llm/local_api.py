@@ -15,11 +15,13 @@ from . import api as api_llm
 from .errors import LLMError
 from .prefs import (
     BROWSERS,
+    DEFAULT_SUGGEST_YEARS,
     ENGINES,
     ENGINE_LABELS,
     SEED_MODES,
     load_prefs,
     normalize_seed_mode,
+    normalize_suggest_years,
     save_prefs,
 )
 
@@ -63,6 +65,9 @@ def status_payload(bridge_status: dict | None = None) -> dict[str, Any]:
         "engine_label": ENGINE_LABELS.get(engine, engine),
         "browser": prefs.get("browser", "gpt"),
         "suggest_seed_mode": prefs.get("suggest_seed_mode", "last_company"),
+        "suggest_years_experience": prefs.get(
+            "suggest_years_experience", DEFAULT_SUGGEST_YEARS
+        ),
         "engines": list(ENGINES),
         "browsers": list(BROWSERS),
         "seed_modes": list(SEED_MODES),
@@ -77,10 +82,12 @@ def apply_prefs(body: dict) -> dict[str, Any]:
     engine = body.get("engine")
     browser = body.get("browser")
     seed_mode = body.get("suggest_seed_mode", body.get("seed_mode"))
+    years = body.get("suggest_years_experience", body.get("years_experience"))
     data = save_prefs(
         engine=None if engine is None else str(engine),
         browser=None if browser is None else str(browser),
         suggest_seed_mode=None if seed_mode is None else str(seed_mode),
+        suggest_years_experience=None if years is None else years,
     )
     return {"ok": True, **data, "engine_label": ENGINE_LABELS.get(data["engine"], data["engine"])}
 
@@ -114,6 +121,9 @@ def enqueue_suggest(body: dict) -> dict[str, Any]:
     notes = str(body.get("notes") or "").strip()
     jd = str(body.get("jd") or "").strip()
     seed_mode = normalize_seed_mode(body.get("seed_mode") or body.get("suggest_seed_mode"))
+    years_experience = normalize_suggest_years(
+        body.get("years_experience", body.get("suggest_years_experience", DEFAULT_SUGGEST_YEARS))
+    )
     profile_seed = _profile_seed_from_body(body) if seed_mode == "provided" else {}
     if not name or not company:
         return {"ok": False, "error": "name and last_company are required", "code": "bad_request"}
@@ -136,13 +146,25 @@ def enqueue_suggest(body: dict) -> dict[str, Any]:
             "notes": notes,
             "jd": jd,
             "seed_mode": seed_mode,
+            "years_experience": years_experience,
             "profile_seed": profile_seed,
         },
     }
     with _jobs_lock:
         _jobs[job_id] = job
         _trim_jobs()
-    _pool.submit(_run_suggest, job_id, name, company, title, notes, jd, profile_seed, seed_mode)
+    _pool.submit(
+        _run_suggest,
+        job_id,
+        name,
+        company,
+        title,
+        notes,
+        jd,
+        profile_seed,
+        seed_mode,
+        years_experience,
+    )
     return {"ok": True, "id": job_id, "status": "queued"}
 
 
@@ -155,6 +177,7 @@ def _run_suggest(
     jd: str,
     profile_seed: dict | None = None,
     seed_mode: str = "last_company",
+    years_experience: int = DEFAULT_SUGGEST_YEARS,
 ) -> None:
     with _jobs_lock:
         job = _jobs.get(job_id)
@@ -172,6 +195,7 @@ def _run_suggest(
             jd=jd,
             profile_seed=profile_seed,
             seed_mode=seed_mode,
+            years_experience=years_experience,
         )
         with _jobs_lock:
             job = _jobs[job_id]

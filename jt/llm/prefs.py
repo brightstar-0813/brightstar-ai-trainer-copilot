@@ -31,6 +31,9 @@ SEED_MODE_LABELS = {
     "last_company": "Last company only (invent peers)",
     "provided": "Use provided employers / schools / certs",
 }
+DEFAULT_SUGGEST_YEARS = 20
+MIN_SUGGEST_YEARS = 5
+MAX_SUGGEST_YEARS = 40
 
 
 def _browser_name(value: str | None) -> str:
@@ -48,6 +51,15 @@ def normalize_seed_mode(value: str | None) -> str:
     return "last_company"
 
 
+def normalize_suggest_years(value) -> int:
+    """Clamp invent-mode years-of-experience preference."""
+    try:
+        years = int(round(float(value)))
+    except (TypeError, ValueError):
+        years = DEFAULT_SUGGEST_YEARS
+    return max(MIN_SUGGEST_YEARS, min(MAX_SUGGEST_YEARS, years))
+
+
 def load_prefs() -> dict:
     path = prefs_path()
     defaults = {
@@ -57,6 +69,7 @@ def load_prefs() -> dict:
         "resume_accent": "",
         "active_profile": "",
         "suggest_seed_mode": "last_company",
+        "suggest_years_experience": DEFAULT_SUGGEST_YEARS,
     }
     if not path.exists():
         return dict(defaults)
@@ -74,6 +87,9 @@ def load_prefs() -> dict:
         "resume_accent": str(data.get("resume_accent") or "").strip(),
         "active_profile": str(data.get("active_profile") or "").strip().lower(),
         "suggest_seed_mode": normalize_seed_mode(data.get("suggest_seed_mode")),
+        "suggest_years_experience": normalize_suggest_years(
+            data.get("suggest_years_experience", DEFAULT_SUGGEST_YEARS)
+        ),
     }
 
 
@@ -85,6 +101,7 @@ def save_prefs(
     resume_accent: str | None = None,
     active_profile: str | None = None,
     suggest_seed_mode: str | None = None,
+    suggest_years_experience=None,
 ) -> dict:
     data = load_prefs()
     if engine is not None:
@@ -105,6 +122,8 @@ def save_prefs(
         data["active_profile"] = str(active_profile or "").strip().lower()
     if suggest_seed_mode is not None:
         data["suggest_seed_mode"] = normalize_seed_mode(suggest_seed_mode)
+    if suggest_years_experience is not None:
+        data["suggest_years_experience"] = normalize_suggest_years(suggest_years_experience)
     config.ensure_dirs()
     prefs_path().write_text(yaml.safe_dump(data, sort_keys=False), encoding="utf-8")
     return data
@@ -120,6 +139,10 @@ def preferred_resume_accent() -> str:
 
 def preferred_suggest_seed_mode() -> str:
     return normalize_seed_mode(load_prefs().get("suggest_seed_mode"))
+
+
+def preferred_suggest_years() -> int:
+    return normalize_suggest_years(load_prefs().get("suggest_years_experience"))
 
 
 def preferred_browser() -> str:

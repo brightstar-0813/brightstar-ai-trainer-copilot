@@ -171,8 +171,15 @@ def env(tmp_path, monkeypatch):
     monkeypatch.setattr(config, "openai_api_key", lambda: "")
     monkeypatch.setattr(config, "anthropic_api_key", lambda: "")
     monkeypatch.setenv("JT_LLM_ENGINE", "auto")
-    prefs = {"engine": "auto", "browser": "gpt", "resume_template": "ats-modern",
-             "resume_accent": "", "active_profile": "test", "suggest_seed_mode": "last_company"}
+    prefs = {
+        "engine": "auto",
+        "browser": "gpt",
+        "resume_template": "ats-modern",
+        "resume_accent": "",
+        "active_profile": "test",
+        "suggest_seed_mode": "last_company",
+        "suggest_years_experience": 20,
+    }
     monkeypatch.setattr("jt.llm.prefs.load_prefs", lambda: dict(prefs))
 
     def _save_prefs(**kwargs):
@@ -182,6 +189,11 @@ def env(tmp_path, monkeypatch):
         if "suggest_seed_mode" in kwargs and kwargs["suggest_seed_mode"] is not None:
             from jt.llm.prefs import normalize_seed_mode
             prefs["suggest_seed_mode"] = normalize_seed_mode(kwargs["suggest_seed_mode"])
+        if "suggest_years_experience" in kwargs and kwargs["suggest_years_experience"] is not None:
+            from jt.llm.prefs import normalize_suggest_years
+            prefs["suggest_years_experience"] = normalize_suggest_years(
+                kwargs["suggest_years_experience"]
+            )
         return dict(prefs)
 
     monkeypatch.setattr("jt.llm.prefs.save_prefs", _save_prefs)
@@ -623,6 +635,17 @@ def test_last_company_mode_ignores_profile_seed(env):
     assert suggestion.sample.experience[0].company == "Fanuc"
     # Invented peers from the fake LLM remain (original mode).
     assert len(suggestion.sample.experience) >= 2
+
+
+def test_suggest_sample_years_experience_in_prompt(env):
+    samples.suggest_sample("Jane Example", "Fanuc", years_experience=12)
+    prompt = FakeBC.calls[-1]
+    assert "at least 12 years" in prompt
+    assert "12+ years" in prompt
+    assert "at least 20 years" not in prompt
+    assert samples.normalize_years_experience(3) == 5
+    assert samples.normalize_years_experience(99) == 40
+    assert samples.normalize_years_experience("bad") == 20
 
 
 def test_apply_provided_orgs_strips_invented_peers(env):

@@ -660,10 +660,16 @@ def samples_suggest(
         "--seed-mode",
         help="last_company (default, invent peers) or provided (lock employers/schools/certs to seed)",
     ),
+    years: int = typer.Option(
+        None,
+        "--years",
+        help="Invent-mode years of experience bar (default 20; ignored when seed_mode=provided)",
+    ),
     request: Path = typer.Option(
         None,
         "--request",
-        help="YAML with name, last_company, title, notes, jd, seed_mode, and optional LinkedIn-style profile_seed",
+        help="YAML with name, last_company, title, notes, jd, seed_mode, years_experience, "
+        "and optional LinkedIn-style profile_seed",
     ),
 ) -> None:
     """Build a teaching profile and resume for a virtual candidate.
@@ -676,8 +682,10 @@ def samples_suggest(
 
     from .llm.prefs import normalize_seed_mode
     from .pipelines.samples import (
+        DEFAULT_YEARS_EXPERIENCE,
         merge_notes,
         merge_profile_seed,
+        normalize_years_experience,
         parse_profile_dump,
         suggest_sample,
     )
@@ -704,6 +712,10 @@ def samples_suggest(
         or ""
     ).strip()
     title = title or str(data.get("title") or parsed.get("title") or "")
+    years_raw = years if years is not None else data.get("years_experience", data.get("years"))
+    years_experience = normalize_years_experience(
+        years_raw if years_raw is not None else DEFAULT_YEARS_EXPERIENCE
+    )
     jd_text = (jd or "").strip()
     if not jd_text and jd_file:
         jd_text = jd_file.read_text(encoding="utf-8").strip()
@@ -754,6 +766,7 @@ def samples_suggest(
             jd=jd_text,
             profile_seed=profile_seed,
             seed_mode=mode,
+            years_experience=years_experience,
         )
     except ValueError as e:
         rprint(f"[red]{e}[/red]")

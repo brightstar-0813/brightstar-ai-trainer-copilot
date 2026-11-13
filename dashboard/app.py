@@ -45,10 +45,13 @@ from jt.llm.prefs import (  # noqa: E402
     BROWSERS,
     ENGINE_LABELS,
     ENGINES,
+    MAX_SUGGEST_YEARS,
+    MIN_SUGGEST_YEARS,
     load_prefs,
     preferred_resume_accent,
     preferred_resume_template,
     preferred_suggest_seed_mode,
+    preferred_suggest_years,
     save_prefs,
 )
 from jt.models import Application, GapQuestion, Job, JobAnalysis, LLMCall, TailoredResume, utcnow  # noqa: E402
@@ -2409,6 +2412,8 @@ def page_samples() -> None:
             st.session_state["suggest_use_provided"] = (
                 preferred_suggest_seed_mode() == "provided"
             )
+        if "suggest_years_experience" not in st.session_state:
+            st.session_state["suggest_years_experience"] = preferred_suggest_years()
         use_provided = st.checkbox(
             "Use provided employers / schools / certs",
             help=(
@@ -2417,6 +2422,18 @@ def page_samples() -> None:
                 "Off: original mode — keep only the last company and invent peer employers."
             ),
             key="suggest_use_provided",
+        )
+        years_experience = st.slider(
+            "Years of experience",
+            min_value=MIN_SUGGEST_YEARS,
+            max_value=MAX_SUGGEST_YEARS,
+            step=1,
+            disabled=use_provided,
+            help=(
+                "Invent-mode seniority bar for the teaching career timeline. "
+                "Disabled when using provided employers — tenure follows the seed dates."
+            ),
+            key="suggest_years_experience",
         )
         with st.container(horizontal=True, vertical_alignment="center"):
             submitted = st.button(
@@ -2447,7 +2464,10 @@ def page_samples() -> None:
         )
         title_val = (title or "").strip() or str(parsed_dump.get("title") or "").strip()
         seed_mode = "provided" if use_provided else "last_company"
-        save_prefs(suggest_seed_mode=seed_mode)
+        save_prefs(
+            suggest_seed_mode=seed_mode,
+            suggest_years_experience=years_experience,
+        )
         if not name_val or not company_val:
             st.error(
                 "Add a name and a real last company (or Fill form from a profile dump).",
@@ -2491,6 +2511,7 @@ def page_samples() -> None:
                     "notes": notes_val,
                     "jd": jd_text,
                     "seed_mode": seed_mode,
+                    "years_experience": int(years_experience),
                 }
                 if seed_mode == "provided" and profile_seed:
                     payload["profile_seed"] = profile_seed

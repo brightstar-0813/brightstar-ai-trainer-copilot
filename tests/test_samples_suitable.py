@@ -55,7 +55,7 @@ def _suggestion(
                 bullets=["Led Python platform reviews", "Built RLHF coding eval harnesses"],
             ),
             ResumeRole(
-                company="Microsoft",
+                company="Amazon",
                 title="Senior Software Engineer",
                 start="2012",
                 end="2018",

@@ -437,6 +437,20 @@ def test_suggest_sample_teaches_with_real_company_and_name(env):
     assert fixed.sample.experience[0].title == "Financial Specialist"
     assert fixed.last_title == "Financial Specialist"
 
+    with_ms = suggestion.model_copy(deep=True)
+    with_ms = samples.guard_suggestion(with_ms, "Jane Example", "Fanuc")
+    with_ms.sample.experience[1].company = "Microsoft"
+    scrubbed = samples.rewrite_banned_invented_employers(with_ms)
+    assert scrubbed.sample.experience[0].company == "Fanuc"
+    assert scrubbed.sample.experience[1].company == "Oracle"
+    keep_last = suggestion.model_copy(deep=True)
+    keep_last = samples.guard_suggestion(keep_last, "Jane Example", "Microsoft")
+    keep_last.sample.experience[0].company = "Microsoft"
+    keep_last.sample.experience[1].company = "Microsoft"
+    keep_last = samples.rewrite_banned_invented_employers(keep_last)
+    assert keep_last.sample.experience[0].company == "Microsoft"
+    assert keep_last.sample.experience[1].company == "Oracle"
+
     aimed, aimed_paths = samples.suggest_sample(
         "Jane Example",
         "Fanuc",

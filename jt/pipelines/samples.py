@@ -53,6 +53,11 @@ _GENERIC_ORG = re.compile(
     r"placeholder|fictional firm|generic)\b",
     re.IGNORECASE,
 )
+# Invented teaching peers must not use these employers (prompt + post-guard).
+# Keep only when the user named that firm as last_company (latest role) or in a provided seed.
+_BANNED_INVENTED_EMPLOYERS: dict[str, str] = {
+    "microsoft": "Oracle",
+}
 # Map taxonomy domains to the closest teaching archetype when sample.archetype is free-text.
 _DOMAIN_TO_ARCHETYPE: dict[str, str] = {
     "coding": "swe_coder",
@@ -284,6 +289,37 @@ def guard_suggestion(
     for role in s.sample.experience:
         role.start = format_month_year(role.start)
         role.end = format_month_year(role.end)
+    return s
+
+
+def rewrite_banned_invented_employers(
+    s: SuggestedBenchmark,
+    *,
+    seed_companies: list[str] | None = None,
+) -> SuggestedBenchmark:
+    """Replace banned peer employers unless the user explicitly allowed them.
+
+    Microsoft (and any future entries in ``_BANNED_INVENTED_EMPLOYERS``) must not
+    appear as invented career history. Keep a role only when:
+    - it is the latest role and matches ``last_company``, or
+    - its company was listed in ``seed_companies`` (provided-seed mode).
+    """
+    seed_ok = {_norm_token(c) for c in (seed_companies or []) if (c or "").strip()}
+    last_key = _norm_token(s.last_company)
+    for i, role in enumerate(s.sample.experience):
+        company = role.company or ""
+        key = _norm_token(company)
+        if not key:
+            continue
+        for banned, replacement in _BANNED_INVENTED_EMPLOYERS.items():
+            if key != banned and banned not in key:
+                continue
+            if i == 0 and last_key and _mentions(company, last_key):
+                continue
+            if any(_mentions(company, a) for a in seed_ok if a):
+                continue
+            role.company = replacement
+            break
     return s
 
 
@@ -953,6 +989,16 @@ def suggest_sample(
     if mode == "provided":
         suggestion = apply_provided_orgs(suggestion, seed, company)
         suggestion = guard_suggestion(suggestion, name, company, title=title)
+        seed_companies = [
+            str(r.get("company") or "")
+            for r in (seed.get("experience") or [])
+            if isinstance(r, dict)
+        ]
+        suggestion = rewrite_banned_invented_employers(
+            suggestion, seed_companies=seed_companies
+        )
+    else:
+        suggestion = rewrite_banned_invented_employers(suggestion)
     suggestion.contact = contact_line_from_seed(seed) or suggestion.contact
     paths = write_suggestion_artifacts(suggestion)
     if jd:
@@ -1541,6 +1587,7 @@ def import_suggestion_json(
         title=(suggestion.last_title or "").strip()
         or ((suggestion.sample.experience[0].title if suggestion.sample.experience else "") or ""),
     )
+    suggestion = rewrite_banned_invented_employers(suggestion)
     return suggestion, write_suggestion_artifacts(suggestion)
 
 

@@ -93,7 +93,7 @@ st.set_page_config(
     page_title="AI Trainer Job Copilot",
     page_icon=":material/work:",
     layout="wide",
-    initial_sidebar_state="expanded",
+    initial_sidebar_state="collapsed",
 )
 
 
@@ -102,11 +102,8 @@ def inject_shell() -> None:
     st.markdown(
         """
 <style>
-  [data-testid="stSidebar"] {
-    border-right: 1px solid color-mix(in srgb, var(--text-color) 10%, transparent);
-  }
-  [data-testid="stSidebar"] [data-testid="stSidebarContent"] {
-    padding: 1.15rem 0.85rem 1.25rem;
+  [data-testid="stSidebar"], [data-testid="collapsedControl"] {
+    display: none !important;
   }
   .jt-brand {
     display: flex;
@@ -648,21 +645,6 @@ def tasks_panel() -> None:
         _render_tasks_panel()
 
 
-@st.fragment(run_every=3)
-def _sidebar_activity_live() -> None:
-    _toast_finished_bg()
-    running = _running_bg_labels()
-    if running:
-        st.caption("Running: " + ", ".join(running))
-        return
-    st.rerun()
-
-
-def sidebar_activity() -> None:
-    if _running_bg_labels():
-        _sidebar_activity_live()
-
-
 def load_jobs_df() -> pd.DataFrame:
     with db.session() as s:
         jobs = s.exec(select(Job)).all()
@@ -766,7 +748,7 @@ def page_overview() -> None:
         func="jt llm status",
         icon=":material/psychology:",
         lede="Single source of truth for analyze / tailor / teaching. "
-        "Sidebar Session only applies for browser modes.",
+        "Browser engines use the ChatGPT or Claude tab chosen here.",
     ):
         llm = status_summary()
         labels = [ENGINE_LABELS[e] for e in ENGINES]
@@ -789,12 +771,12 @@ def page_overview() -> None:
         if llm.get("session_routes"):
             st.caption(
                 f"Engine **{llm['preferred']}** → Session **{llm.get('browser_label', '—')}** "
-                f"→ active **{active}**. Change ChatGPT/Claude in the sidebar Session."
+                f"→ active **{active}**. Change ChatGPT/Claude with the engine picker above."
             )
         else:
             st.caption(
                 f"Engine **{llm['preferred']}** → active **{active}** (API/manual). "
-                f"Sidebar Session is unused until you pick a browser engine. "
+                f"Browser tab choice applies only when a browser engine is selected. "
                 f"**auto** probe → **{llm['resolved_auto']}**."
             )
 
@@ -2993,76 +2975,6 @@ if not os.environ.get("PYTEST_CURRENT_TEST") and not st.session_state.get("bridg
     st.session_state["bridge_autostarted"] = True
 
 inject_shell()
-st.sidebar.markdown(
-    """
-<div class="jt-brand">
-  <div class="jt-mark">JT</div>
-  <div>
-    <div class="jt-name">Job Copilot</div>
-    <div class="jt-sub">Teaching studio</div>
-  </div>
-</div>
-""",
-    unsafe_allow_html=True,
-)
-_prefs_now = load_prefs()
-_engine_now = _prefs_now["engine"]
-_browser_now = _prefs_now["browser"]
-_session_on = session_routes_tasks()
-if _session_on:
-    if "browser_session" not in st.session_state:
-        st.session_state["browser_session"] = BROWSER_LABELS.get(_browser_now, "ChatGPT")
-    # Keep widget label synced when Overview saves engine=gpt/claude.
-    _expected_session = BROWSER_LABELS.get(_browser_now, "ChatGPT")
-    if st.session_state.get("browser_session") != _expected_session and _engine_now in BROWSERS:
-        st.session_state["browser_session"] = _expected_session
-    _browser_pick = st.sidebar.selectbox(
-        "Session",
-        [BROWSER_LABELS[b] for b in BROWSERS],
-        key="browser_session",
-        help="ChatGPT or Claude tab used when the AI engine is a browser mode.",
-    )
-    _browser_chosen = BROWSERS[[BROWSER_LABELS[b] for b in BROWSERS].index(_browser_pick)]
-    if _browser_chosen != _browser_now:
-        # Locked gpt/claude engines stay aligned with Session; flexible browser/auto only store Session.
-        if _engine_now in BROWSERS:
-            save_prefs(browser=_browser_chosen, engine=_browser_chosen)
-        else:
-            save_prefs(browser=_browser_chosen)
-        st.rerun()
-else:
-    if _engine_now == "openai":
-        _active_label = "OpenAI API"
-    elif _engine_now == "anthropic":
-        _active_label = "Anthropic API"
-    elif _engine_now == "manual":
-        _active_label = "Manual paste"
-    elif _engine_now == "auto":
-        _active_label = ENGINE_LABELS.get("auto", "Auto (API)")
-    else:
-        _active_label = ENGINE_LABELS.get(_engine_now, _engine_now)
-    st.sidebar.markdown("**Session**")
-    st.sidebar.caption(
-        f"Using **{_active_label}** — Session unused. "
-        "Pick a browser engine on Overview to use ChatGPT/Claude tabs."
-    )
-    st.session_state.pop("browser_session", None)
-_active_now = get_active_profile()
-_profile_names = list_profiles()
-if _profile_names:
-    _profile_idx = _profile_names.index(_active_now) if _active_now in _profile_names else 0
-    _profile_pick = st.sidebar.selectbox(
-        "Profile",
-        _profile_names,
-        index=_profile_idx,
-        key="sidebar_profile",
-        help="Active candidate profile for analyze, tailor, and match.",
-    )
-    if _profile_pick != _active_now:
-        set_active_profile(_profile_pick)
-else:
-    st.sidebar.caption("No profiles yet — open Profiles to import one.")
-sidebar_activity()
 if st.session_state.get("page") == "Job detail":
     st.session_state["page"] = "Jobs"
 choice = st.radio(

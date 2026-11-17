@@ -14,7 +14,7 @@ Most common requirements:
 
 Build a complete profile with:
 - a realistic, believable career history (3-4 roles) whose progression makes the archetype's credibility obvious, with bullets that carry numbers and named tools;
-- education as multiple degree entries: bachelor's + master's + PhD (or domain professional doctorate) from high-ranking research universities — do not stop at a master's. Dual fields get a second relevant bachelor's or master's as its own entry. Degrees only; do not put a license or a certification here;
+- education as multiple degree entries: bachelor's + master's + PhD (or domain professional doctorate) from high-ranking research universities — do not stop at a master's. Dual fields get a second relevant bachelor's or master's as its own entry. Give each degree month + year start and end dates, and make the timeline realistic: at least one degree overlaps a role (part-time or executive study only where that school really offers it) or is separated from the previous degree by a 6+ month gap (between jobs); full-time programs (most PhDs, full-time master's) must sit in a window with no listed job; never a back-to-back school block that finishes before the first job. Degrees only; do not put a license or a certification here;
 - `licenses`: occupational licenses that actually exist for this archetype (government or licensing board). Licensed archetypes should list the full gating set strong peers hold (typically 1–3), not a single token license. Leave empty only when none exist;
 - `certifications`: professional or vendor certifications that actually exist for this archetype. Prefer a dense, plausible stack (typically 3–6 when the domain has real cert paths; 2–4 specialty/board certs alongside licenses). Do not stop at one when more exist. Leave empty only when none exist. Leave `licenses_certs` empty;
 - 2-3 projects or publications that prove the skill directly (including any AI-training, evaluation or red-teaming work);
@@ -23,3 +23,10 @@ Build a complete profile with:
 - `benchmarks`: quantified coach markers (years of experience, publications, hours of annotation, ranking). Never printed as resume lines.
 
 Avoid clichés ("passionate", "results-driven"). Prefer specific, checkable details. Set `label` to "ILLUSTRATIVE SAMPLE - fictional person, not a real individual" and `archetype` to "{{ archetype.name }}".
+{% if program_formats %}
+Verified program formats (state a format only for these schools and programs; for any other school, state no format or length):
+{% for p in program_formats %}- {{ p.school }} - {{ p.program }}: {{ p.format }}; {{ p.length }}. {{ p.notes }}
+{% endfor %}{% endif %}
+{% if timeline_fix %}
+Retry fix (the previous answer failed the education check): {{ timeline_fix }} Fix the education section only: keep at least three degree entries (bachelor's, master's, doctorate) and a realistic timeline; keep every other fact.
+{% endif %}

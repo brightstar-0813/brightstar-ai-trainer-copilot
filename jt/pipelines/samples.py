@@ -5,13 +5,14 @@ import json
 import re
 from datetime import date
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 from sqlmodel import select
 
 from types import SimpleNamespace
 
 from .. import config, db
+from ..analysis.education import degree_rank
 from ..analysis.fit import score_fit
 from ..analysis.taxonomy import domains_in
 from ..llm import ask_json
@@ -104,12 +105,117 @@ def load_sample(key: str) -> SampleProfile | None:
     return SampleProfile.model_validate_json(p.read_text(encoding="utf-8")) if p.exists() else None
 
 
+_TIMELINE_MIN_OVERLAP_MONTHS = 3
+_TIMELINE_MIN_GAP_MONTHS = 6
+_TIMELINE_ISSUE = (
+    "All degrees are back-to-back and none overlaps a job (no part-time or while-employed study, "
+    "and no 6+ month gap between degrees)."
+)
+
+
+def _month_index(text: object, *, is_end: bool) -> int | None:
+    """Map `Mon YYYY`, `YYYY`, or `Present` to a month index (year * 12 + month - 1)."""
+    raw = format_month_year(str(text or "").strip())
+    if not raw:
+        return None
+    if raw.casefold() == "present":
+        today = date.today()
+        return today.year * 12 + today.month - 1
+    named = re.fullmatch(r"([A-Za-z]+)\.?\s+((?:19|20)\d{2})", raw)
+    if named:
+        month = _MONTH_NAMES.get(named.group(1).casefold())
+        return int(named.group(2)) * 12 + month - 1 if month else None
+    year = re.fullmatch(r"((?:19|20)\d{2})", raw)
+    if year:
+        return int(year.group(1)) * 12 + (11 if is_end else 0)
+    return None
+
+
+def education_timeline_issues(
+    education: list[tuple[str, str]],
+    roles: list[tuple[str, str]],
+) -> list[str]:
+    """Flag a degree ladder that is a tidy back-to-back school block with no work overlap.
+
+    `education` is (school, dates) pairs; `roles` is (start, end) pairs.
+    Passes when fewer than 2 degrees parse, when any degree overlaps a role by
+    at least 3 months, or when any two consecutive degrees are 6+ months apart.
+    """
+    spans: list[tuple[int, int]] = []
+    for _school, dates in education:
+        start_s, end_s = _parse_education_dates(dates)
+        a = _month_index(start_s, is_end=False)
+        b = _month_index(end_s, is_end=True)
+        if a is not None and b is not None and b >= a:
+            spans.append((a, b))
+    if len(spans) < 2:
+        return []
+    spans.sort()
+    role_spans: list[tuple[int, int]] = []
+    for start_s, end_s in roles:
+        a = _month_index(start_s, is_end=False)
+        b = _month_index(end_s, is_end=True)
+        if a is not None and b is not None and b >= a:
+            role_spans.append((a, b))
+    for a, b in spans:
+        for ra, rb in role_spans:
+            if min(b, rb) - max(a, ra) >= _TIMELINE_MIN_OVERLAP_MONTHS:
+                return []
+    for (_a1, b1), (a2, _b2) in zip(spans, spans[1:]):
+        if a2 - b1 >= _TIMELINE_MIN_GAP_MONTHS:
+            return []
+    return [_TIMELINE_ISSUE]
+
+
+_DEGREE_COUNT_ISSUE = (
+    "Education must list at least three degrees as separate entries: a bachelor's, a master's, "
+    "and a doctorate (PhD or professional doctorate)."
+)
+
+
+def education_degree_count_issues(degrees: list[str]) -> list[str]:
+    """Require a bachelor's, a master's, and a doctorate, with at least 3 degree entries."""
+    entries = [d for d in degrees if (d or "").strip()]
+    ranks = {degree_rank(d) for d in entries}
+    ok = len(entries) >= 3 and 2 in ranks and 3 in ranks and 5 in ranks
+    return [] if ok else [_DEGREE_COUNT_ISSUE]
+
+
+def program_formats() -> list[dict[str, str]]:
+    """Verified program formats (config/program_formats.yaml) for the prompts."""
+    return list(config.load_yaml("program_formats.yaml").get("programs") or [])
+
+
+def _sample_education_issues(sample: Any) -> list[str]:
+    return education_degree_count_issues([e.degree for e in sample.education]) + education_timeline_issues(
+        [(e.school, e.dates) for e in sample.education],
+        [(r.start, r.end) for r in sample.experience],
+    )
+
+
+def _apply_education_check(sample: Any, retry: Callable[[str], Any]) -> Any:
+    """Post-check degree count and timeline; retry once with the issues, then note them for the coach."""
+    issues = _sample_education_issues(sample)
+    if not issues:
+        return sample
+    fixed = retry(" ".join(issues))
+    remaining = _sample_education_issues(fixed)
+    if remaining:
+        fixed.benchmarks["education_check"] = " ".join(remaining)
+    return fixed
+
+
 def generate_sample(key: str) -> SampleProfile:
     arch = archetypes()[key]
     md = market_data()
-    sample = ask_json("samples", SampleProfile, {
+    prompt_vars = {
         "archetype": arch, "n_jobs": md["n_jobs"], "top_keywords": md["top_keywords"],
-        "top_requirements": md["top_requirements"]})
+        "top_requirements": md["top_requirements"], "program_formats": program_formats()}
+    sample = ask_json("samples", SampleProfile, prompt_vars)
+    sample = _apply_education_check(
+        sample,
+        lambda fix: ask_json("samples", SampleProfile, {**prompt_vars, "timeline_fix": fix}),
+    )
     config.SAMPLES_DIR.mkdir(parents=True, exist_ok=True)
     sample_path(key).write_text(sample.model_dump_json(indent=2), encoding="utf-8")
     sample_path(key).with_suffix(".md").write_text(sample_to_markdown(sample), encoding="utf-8")
@@ -986,7 +1092,7 @@ def suggest_sample(
     md = market_data()
     # Use the configured engine (browser ChatGPT/Claude by default). models.yaml sets a long timeout.
     title = (title or "").strip()
-    suggestion = ask_json("sample_suggest", SuggestedBenchmark, {
+    prompt_vars: dict[str, Any] = {
         "name": name,
         "company": company,
         "title": title,
@@ -1000,7 +1106,17 @@ def suggest_sample(
         "archetypes": archetypes(),
         "n_jobs": md["n_jobs"],
         "top_keywords": md["top_keywords"],
-    })
+        "program_formats": program_formats(),
+    }
+    suggestion = ask_json("sample_suggest", SuggestedBenchmark, prompt_vars)
+    if mode != "provided":
+        # Provided-seed education comes from the user's seed, so only invent mode is checked.
+        suggestion.sample = _apply_education_check(
+            suggestion.sample,
+            lambda fix: ask_json(
+                "sample_suggest", SuggestedBenchmark, {**prompt_vars, "timeline_fix": fix}
+            ).sample,
+        )
     if jd:
         suggestion.target_kind = "job_description"
     elif title:

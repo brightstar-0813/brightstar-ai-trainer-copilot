@@ -1,0 +1,67 @@
+# Verified degree-program formats taken from official school pages (checked 2026-11-17).
+# Teaching models may state a format only when it is listed here. For any other school,
+# do not state a format or a length.
+verified_on: "2026-11-17"
+programs:
+  - school: University of Michigan, Stephen M. Ross School of Business
+    program: Master of Accounting (MAcc)
+    format: full-time, in-person only; part-time study is not offered
+    length: eight months, Fall start (Fall term to Winter term)
+    notes: Students must complete all prerequisites before a Fall start. A Summer Immersion pathway is also full-time.
+    source: https://michiganross.umich.edu/graduate/master-of-accounting/admissions/faqs
+
+  - school: University of Pennsylvania, The Wharton School
+    program: PhD in Accounting
+    format: full-time, residential; no part-time or distance option
+    length: about 4 to 6 years; two years of coursework, then thesis research and defense
+    notes: Every admitted student receives a fellowship covering tuition and a living stipend. Sources differ on the typical length (4-5 years on the FAQ, 5-6 years for bachelor's entrants on the policies page).
+    source: https://doctoral.wharton.upenn.edu/faq/
+
+  - school: University of Illinois Urbana-Champaign, Gies College of Business
+    program: Bachelor of Science in Accountancy
+    format: full-time, on campus
+    length: four years, 124 credit hours
+    notes: Official four-year sample sequence in the 2026-2027 catalog.
+    source: https://catalog.illinois.edu/undergraduate/bus/accountancy-bs/
+
+  - school: Stanford University
+    program: PhD (all departments)
+    format: full-time; at least 8 units per quarter, enrolled every autumn, winter and spring term
+    length: varies by department; continuous 12-month funding guaranteed for up to five years
+    notes: Part-time enrollment is not offered for PhD students outside an approved leave of absence.
+    source: https://bulletin.stanford.edu/academic-polices/degree-requirements/graduate-degree-requirements
+
+  - school: Massachusetts Institute of Technology
+    program: PhD (all departments)
+    format: full-time, residential; no part-time or distance option
+    length: varies by field; about 4-5 years in Mathematics, 5-6 in Economics, about 6 in Sloan
+    notes: Departments typically fund five years (tuition, health insurance, stipend or TA/RA salary).
+    source: https://math.mit.edu/academics/grad/phd/admission/faq.html
+
+  - school: Princeton University
+    program: PhD (all fields)
+    format: full-time and funded; part-time study is not permitted
+    length: generally five years, with some four-year programs
+    notes: Full financial support for all years of regular enrollment, contingent on satisfactory progress.
+    source: https://gradschool.princeton.edu/admission-onboarding/explore
+
+  - school: Georgia Institute of Technology
+    program: Online Master of Science in Computer Science (OMSCS)
+    format: strictly part-time, online and asynchronous; full-time enrollment not allowed
+    length: 30 credit hours (10 courses); up to six years to finish; most students take 1-2 courses per term and finish in about 2-4 years
+    notes: Same curriculum as the residential MSCS.
+    source: https://omscs.gatech.edu/
+
+  - school: Baruch College, Zicklin School of Business
+    program: Evening MBA (general)
+    format: part-time, self-paced evening program; classes mostly weekday evenings, some weekends
+    length: 48 credits; average about 3 years (six semesters); up to six years to finish
+    notes: Students may take 1.5 to more than 9 credits per semester.
+    source: https://zicklin.baruch.cuny.edu/academic-programs/graduate/compare-zicklins-programs/
+
+  - school: University of Chicago, Booth School of Business
+    program: Evening MBA
+    format: part-time; one 3-hour class per week, weeknights 6-9 pm, plus up to 25% of courses remotely
+    length: 20 courses plus LEAD; most students finish in 2.5-3 years; up to eight years allowed
+    notes: The Full-Time MBA is a two-year, full-time program. One older Booth story page says five years; the official FAQ says eight.
+    source: https://www.chicagobooth.edu/mba/part-time/faq

@@ -164,6 +164,7 @@ def audit_teaching_model_education(
             [(r.start, r.end) for r in suggestion.sample.experience],
             age=age,
         )
+        issues += _sample_career_issues(suggestion.sample)
         if issues:
             report[folder.name] = issues
     return report
@@ -246,20 +247,127 @@ def education_degree_count_issues(degrees: list[str]) -> list[str]:
     return [] if ok else [_DEGREE_COUNT_ISSUE]
 
 
+# Verified availability: a role that starts before the year cannot cite the tool, product, or standard.
+# The same table feeds the prompts (TOOL_LAUNCH_YEARS) and the post-check, so both stay in sync.
+_TOOL_LAUNCH_RULES: list[tuple[str, int, str]] = [
+    ("Power BI", 2015, r"\bPower\s?BI\b"),
+    ("Tableau", 2004, r"\bTableau\b"),
+    ("Anaplan", 2006, r"\bAnaplan\b"),
+    ("OneStream", 2010, r"\bOneStream\b"),
+    ("Oracle Fusion Cloud ERP", 2011, r"\bOracle Fusion\b"),
+    ("Workday Adaptive Planning", 2018, r"\bWorkday Adaptive Planning\b"),
+    ("SAP S/4HANA", 2015, r"\bS/?4\s?HANA\b"),
+    ("Docker", 2013, r"\bDocker\b"),
+    ("Kubernetes", 2014, r"\bKubernetes\b"),
+    ("TensorFlow", 2015, r"\bTensorFlow\b"),
+    ("PyTorch", 2016, r"\bPyTorch\b"),
+    ("generative AI", 2022, r"\bgenerative AI\b"),
+    ("ChatGPT", 2022, r"\bChatGPT\b"),
+]
+# The ASC codification took effect in 2009; the specific topics arrived later.
+_ASC_CODIFICATION_YEAR = 2009
+_ASC_TOPIC_YEARS: dict[str, int] = {"606": 2014, "842": 2016}
+TOOL_LAUNCH_YEARS: list[tuple[str, int]] = [
+    ("ASC codification (any ASC topic)", _ASC_CODIFICATION_YEAR),
+    ("ASC 606", _ASC_TOPIC_YEARS["606"]),
+    ("ASC 842", _ASC_TOPIC_YEARS["842"]),
+    *((name, year) for name, year, _ in _TOOL_LAUNCH_RULES),
+]
+# Degree text that makes overlap with a job legitimate (part-time, evening, online, executive, ...).
+_PART_TIME_MARKER = re.compile(
+    r"part[- ]time|evening|weekend|online|executive|while (?:employed|working)|concurrent",
+    re.IGNORECASE,
+)
+
+
+def _tool_date_issues(role: str, start_year: int, bullets: list[str]) -> list[str]:
+    """Flag a role that cites a tool, product, or ASC topic that did not exist when the role started."""
+    text = " ".join(bullets)
+    issues: list[str] = []
+    for code in sorted(set(re.findall(r"\bASC\s*(\d{3})\b", text))):
+        year = _ASC_TOPIC_YEARS.get(code, _ASC_CODIFICATION_YEAR)
+        if start_year < year:
+            issues.append(f"{role} starts in {start_year} but cites ASC {code}, which did not exist until {year}.")
+    for name, year, pattern in _TOOL_LAUNCH_RULES:
+        if start_year < year and re.search(pattern, text, re.IGNORECASE):
+            issues.append(f"{role} starts in {start_year} but cites {name}, which was not available until {year}.")
+    return issues
+
+
+def career_timeline_issues(
+    roles: list[tuple[str, str, str, list[str]]],
+    education: list[tuple[str, str, str]],
+    *,
+    today: date | None = None,
+) -> list[str]:
+    """Check the factual order and overlaps of a career, and the tools each role cites.
+
+    `roles` is (label, start, end, bullets) in listed order; `education` is (label, dates, text).
+    Rules:
+    - experience is listed newest first;
+    - jobs do not overlap (one full-time job at a time);
+    - a full-time degree does not overlap a job unless its text says part-time, evening, online, or executive;
+    - no role cites a tool, product, or standard that was not yet available when the role started.
+    """
+    del today  # "Present" resolves through _month_index, which uses the current date.
+    issues: list[str] = []
+    spans: list[tuple[int, int, str]] = []
+    for label, start_s, end_s, bullets in roles:
+        a = _month_index(start_s, is_end=False)
+        b = _month_index(end_s, is_end=True)
+        if a is None or b is None or b < a:
+            issues.append(f"{label}: dates must read Mon YYYY to Mon YYYY (or Present), ending after they start.")
+            continue
+        spans.append((a, b, label))
+        issues.extend(_tool_date_issues(label, a // 12, bullets))
+
+    for (a1, _b1, l1), (a2, _b2, l2) in zip(spans, spans[1:]):
+        if a2 > a1:
+            issues.append(f"Experience must be listed newest first: {l2} starts after {l1}.")
+    for i, (a1, b1, l1) in enumerate(spans):
+        for a2, b2, l2 in spans[i + 1:]:
+            if min(b1, b2) - max(a1, a2) >= _TIMELINE_MIN_OVERLAP_MONTHS:
+                issues.append(f"{l1} and {l2} overlap; a candidate holds one full-time job at a time.")
+
+    for label, dates, text in education:
+        start_s, end_s = _parse_education_dates(dates)
+        a = _month_index(start_s, is_end=False)
+        b = _month_index(end_s, is_end=True)
+        if a is None or b is None or b < a or _PART_TIME_MARKER.search(text or ""):
+            continue
+        for ra, rb, role in spans:
+            if min(b, rb) - max(a, ra) >= _TIMELINE_MIN_OVERLAP_MONTHS:
+                issues.append(
+                    f"{label} is full-time but overlaps {role}; list it as part-time or evening, or move its dates."
+                )
+    return issues
+
+
+def _sample_career_issues(sample: Any) -> list[str]:
+    roles = [(f"{r.title} at {r.company}", r.start, r.end, r.bullets) for r in sample.experience]
+    education = [(e.school, e.dates, " ".join([e.degree, e.field, *e.details])) for e in sample.education]
+    return career_timeline_issues(roles, education)
+
+
 def program_formats() -> list[dict[str, str]]:
     """Verified program formats (config/program_formats.yaml) for the prompts."""
     return list(config.load_yaml("program_formats.yaml").get("programs") or [])
 
 
 def _sample_education_issues(sample: Any) -> list[str]:
-    return education_degree_count_issues([e.degree for e in sample.education]) + education_timeline_issues(
-        [(e.school, e.dates) for e in sample.education],
-        [(r.start, r.end) for r in sample.experience],
+    """Degree count, anchored timeline, and career facts (order, overlaps, tool dates)."""
+    return (
+        education_degree_count_issues([e.degree for e in sample.education])
+        + education_timeline_issues(
+            [(e.school, e.dates) for e in sample.education],
+            [(r.start, r.end) for r in sample.experience],
+        )
+        + _sample_career_issues(sample)
     )
 
 
 def _apply_education_check(sample: Any, retry: Callable[[str], Any]) -> Any:
-    """Post-check degree count and timeline; retry once with the issues, then note them for the coach."""
+    """Post-check degree count, timeline, and career facts; retry once with the issues, then note them for the coach."""
     issues = _sample_education_issues(sample)
     if not issues:
         return sample
@@ -276,6 +384,7 @@ def generate_sample(key: str) -> SampleProfile:
     prompt_vars = {
         "archetype": arch, "n_jobs": md["n_jobs"], "top_keywords": md["top_keywords"],
         "top_requirements": md["top_requirements"], "program_formats": program_formats(),
+        "tool_launch_years": TOOL_LAUNCH_YEARS,
         "candidate_age": DEFAULT_CANDIDATE_AGE,
         "earliest_year": earliest_year_for_age(DEFAULT_CANDIDATE_AGE),
     }
@@ -1177,6 +1286,7 @@ def suggest_sample(
         "n_jobs": md["n_jobs"],
         "top_keywords": md["top_keywords"],
         "program_formats": program_formats(),
+        "tool_launch_years": TOOL_LAUNCH_YEARS,
     }
     suggestion = ask_json("sample_suggest", SuggestedBenchmark, prompt_vars)
     if mode != "provided":

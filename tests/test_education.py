@@ -224,8 +224,14 @@ def test_blank_degree_entries_do_not_count():
 def _sample(degrees_dates, roles=None):
     role_list = CAREER if roles is None else roles
     return SimpleNamespace(
-        education=[SimpleNamespace(school=s, degree=d, dates=dt) for s, d, dt in degrees_dates],
-        experience=[SimpleNamespace(start=a, end=b) for a, b in role_list],
+        education=[
+            SimpleNamespace(school=s, degree=d, field="", dates=dt, details=[])
+            for s, d, dt in degrees_dates
+        ],
+        experience=[
+            SimpleNamespace(title=f"Role {i}", company="Co", start=a, end=b, bullets=[])
+            for i, (a, b) in enumerate(role_list, start=1)
+        ],
         benchmarks={},
     )
 
@@ -233,11 +239,11 @@ def _sample(degrees_dates, roles=None):
 GOOD_LADDER = [
     ("UIUC", "Bachelor of Science (BS)", "Aug 1999 - May 2003"),
     ("Wharton", "Doctor of Philosophy (PhD)", "Sep 2005 - May 2010"),
-    ("Booth", "Master of Business Administration (MBA)", "Sep 2012 - Jun 2015"),
+    ("Booth", "Master of Business Administration (MBA), part-time evening", "Sep 2012 - Jun 2015"),
 ]
 GOOD_ROLES = [
-    ("Jun 2003", "Aug 2005"),
     ("Jun 2010", "Present"),
+    ("Jun 2003", "Aug 2005"),
 ]
 
 
@@ -356,3 +362,97 @@ def test_all_saved_teaching_models_report_via_audit_helper():
     """Smoke: the audit helper returns a dict keyed by folder name."""
     report = samples.audit_teaching_model_education()
     assert isinstance(report, dict)
+
+
+# --- Career chronology and factual tool dates ------------------------------
+
+def test_roles_must_be_listed_newest_first():
+    roles = [("Old role", "Jun 2003", "Jul 2006", []), ("New role", "Aug 2006", "Jul 2008", [])]
+    issues = samples.career_timeline_issues(roles, [], today=TODAY)
+    assert any("newest first" in i for i in issues)
+
+
+def test_overlapping_full_time_jobs_are_flagged():
+    roles = [("Job A", "Jan 2015", "Dec 2019", []), ("Job B", "Jun 2017", "Present", [])]
+    issues = samples.career_timeline_issues(roles, [], today=TODAY)
+    assert any("overlap" in i for i in issues)
+
+
+def test_full_time_degree_overlapping_job_is_flagged():
+    roles = [("Analyst at Acme", "Jan 2012", "Dec 2016", [])]
+    edu = [("Wharton", "Aug 2010 – May 2015", "PhD in Accounting, full-time residential")]
+    issues = samples.career_timeline_issues(roles, edu, today=TODAY)
+    assert any("full-time but overlaps" in i for i in issues)
+
+
+def test_part_time_degree_overlapping_job_passes():
+    roles = [("Audit Manager at Deloitte", "Aug 2006", "Jul 2008", [])]
+    edu = [("Booth", "Sep 2005 – Jun 2008", "MBA, Evening part-time format")]
+    issues = samples.career_timeline_issues(roles, edu, today=TODAY)
+    assert not any("full-time" in i for i in issues)
+
+
+def test_role_citing_standard_before_it_existed_is_flagged():
+    roles = [(
+        "Audit Manager at Deloitte", "Aug 2006", "Jul 2008",
+        ["Applied ASC 606 and ASC 842 to client revenue and leases", "Built Power BI dashboards"],
+    )]
+    issues = samples.career_timeline_issues(roles, [], today=TODAY)
+    assert any("ASC 606" in i and "2014" in i for i in issues)
+    assert any("ASC 842" in i for i in issues)
+    assert any("Power BI" in i for i in issues)
+
+
+def test_asc_codification_before_2009_is_flagged():
+    roles = [("Senior Associate at Deloitte", "Jun 2003", "Jul 2006", ["Tested ASC 360 fixed-asset balances"])]
+    issues = samples.career_timeline_issues(roles, [], today=TODAY)
+    assert any("ASC 360" in i and "2009" in i for i in issues)
+
+
+def test_tool_inside_its_launch_year_passes():
+    roles = [("Director at GE", "Jun 2015", "Oct 2023", ["Ran scenario models in Anaplan and Power BI"])]
+    assert samples.career_timeline_issues(roles, [], today=TODAY) == []
+
+
+def test_pasted_career_history_flags_order_and_anachronisms():
+    roles = [
+        ("Director of Finance & Accounting at The Wall Street Journal", "Nov 2023", "Present",
+         ["Led ASC 606 revenue recognition across subscription and advertising",
+          "Automated reporting in Power BI and Workday Adaptive Planning"]),
+        ("Audit Manager at Deloitte", "Aug 2006", "Jul 2008",
+         ["Led technical reviews covering ASC 606 revenue recognition and ASC 842 lease accounting"]),
+        ("Senior Audit Associate at Deloitte", "Jun 2003", "Jul 2006",
+         ["Tested cash and accounts receivable balances"]),
+        ("Finance Manager at JPMorgan Chase", "Aug 2008", "Jul 2010",
+         ["Supported planning in Hyperion Planning and Essbase"]),
+        ("Finance Director at General Electric", "Jun 2015", "Oct 2023",
+         ["Ran scenario models in Anaplan and Power BI"]),
+    ]
+    education = [
+        ("University of Illinois Urbana-Champaign", "Aug 1999 – May 2003",
+         "Bachelor of Science, Accountancy, full-time on campus"),
+        ("University of Chicago Booth School of Business", "Sep 2005 – Jun 2008",
+         "MBA, Evening part-time format"),
+        ("University of Pennsylvania, The Wharton School", "Aug 2010 – May 2015",
+         "PhD Accounting, full-time residential"),
+    ]
+    text_out = " | ".join(samples.career_timeline_issues(roles, education, today=TODAY))
+    assert "newest first" in text_out
+    assert "ASC 606" in text_out and "ASC 842" in text_out
+    assert "Booth" not in text_out
+    assert "Wharton" not in text_out
+
+
+def test_chronology_rule_and_tool_years_render_into_samples_prompt():
+    prompt = render_prompt(
+        "samples",
+        archetype={"name": "Finance SME", "description": "d", "roles": []},
+        n_jobs=0,
+        top_keywords=[],
+        top_requirements=[],
+        candidate_age=45,
+        earliest_year=1999,
+        tool_launch_years=samples.TOOL_LAUNCH_YEARS,
+    )
+    assert "newest first" in prompt
+    assert "Power BI 2015" in prompt and "ASC 842 2016" in prompt

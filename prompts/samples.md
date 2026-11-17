@@ -18,6 +18,7 @@ Build a complete profile with:
 - `licenses`: occupational licenses that actually exist for this archetype (government or licensing board). Licensed archetypes should list the full gating set strong peers hold (typically 1–3), not a single token license. Leave empty only when none exist;
 - `certifications`: professional or vendor certifications that actually exist for this archetype. Prefer a dense, plausible stack (typically 3–6 when the domain has real cert paths; 2–4 specialty/board certs alongside licenses). Do not stop at one when more exist. Leave empty only when none exist. Leave `licenses_certs` empty;
 - 2-3 projects or publications that prove the skill directly (including any AI-training, evaluation or red-teaming work);
+- **Career chronology (checked after generation):** list `experience` newest first. Jobs never overlap: one full-time job at a time. A full-time degree never overlaps a listed job; a degree may overlap a job only when its program is part-time, evening, executive, or online (use the verified formats above). No role may cite a tool, product, or standard that did not exist yet when that role started. Availability: {% for name, year in tool_launch_years %}{{ name }} {{ year }}{% if not loop.last %}; {% endif %}{% endfor %}. Use older tools for older roles (for example Excel, SAP ERP, Hyperion, Oracle Financials, ACL Analytics).
 - a skills list ordered by relevance;
 - `signals`: 6-10 concrete markers that make a recruiter stop scrolling (what exactly, and why it works). Coach-facing only;
 - `benchmarks`: quantified coach markers (years of experience, publications, hours of annotation, ranking). Never printed as resume lines.
@@ -28,5 +29,5 @@ Verified program formats (state a format only for these schools and programs; fo
 {% for p in program_formats %}- {{ p.school }} - {{ p.program }}: {{ p.format }}; {{ p.length }}. {{ p.notes }}
 {% endfor %}{% endif %}
 {% if timeline_fix %}
-Retry fix (the previous answer failed the education check): {{ timeline_fix }} Fix the education section only: keep at least three degree entries (bachelor's, master's, doctorate) and a realistic timeline; keep every other fact.
+Retry fix (the previous answer failed the career or education check): {{ timeline_fix }} Fix only the problems named here, in the experience or education section. Keep at least three degree entries (bachelor's, master's, doctorate). Keep every fact the problems do not name.
 {% endif %}

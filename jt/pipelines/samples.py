@@ -62,7 +62,9 @@ _BANNED_INVENTED_EMPLOYERS: dict[str, str] = {
 }
 DEFAULT_YEARS_EXPERIENCE = 20
 MIN_YEARS_EXPERIENCE = 5
-MAX_YEARS_EXPERIENCE = 40
+DEFAULT_CANDIDATE_AGE = 45
+CAREER_MIN_AGE = 18
+MAX_YEARS_EXPERIENCE = DEFAULT_CANDIDATE_AGE - CAREER_MIN_AGE  # a 45-year-old's career fits in 27 years
 
 
 def normalize_years_experience(value: Any, default: int = DEFAULT_YEARS_EXPERIENCE) -> int:
@@ -106,11 +108,7 @@ def load_sample(key: str) -> SampleProfile | None:
 
 
 _TIMELINE_MIN_OVERLAP_MONTHS = 3
-_TIMELINE_MIN_GAP_MONTHS = 6
-_TIMELINE_ISSUE = (
-    "All degrees are back-to-back and none overlaps a job (no part-time or while-employed study, "
-    "and no 6+ month gap between degrees)."
-)
+MAX_UNLISTED_STRETCH_MONTHS = 12
 
 
 def _month_index(text: object, *, is_end: bool) -> int | None:
@@ -131,40 +129,107 @@ def _month_index(text: object, *, is_end: bool) -> int | None:
     return None
 
 
+def candidate_birth_year(age: int = DEFAULT_CANDIDATE_AGE, today: date | None = None) -> int:
+    return (today or date.today()).year - age
+
+
+def earliest_year_for_age(
+    age: int = DEFAULT_CANDIDATE_AGE,
+    at_age: int = CAREER_MIN_AGE,
+    today: date | None = None,
+) -> int:
+    """Earliest calendar year the candidate could start school or work (age 18 by default)."""
+    return candidate_birth_year(age, today=today) + at_age
+
+
+def audit_teaching_model_education(
+    root: Path | None = None,
+    *,
+    age: int = DEFAULT_CANDIDATE_AGE,
+) -> dict[str, list[str]]:
+    """Return {folder_name: issue_list} for every saved teaching model under output/suggestions."""
+    root = Path(root) if root is not None else (config.OUTPUT_DIR / "suggestions")
+    report: dict[str, list[str]] = {}
+    if not root.exists():
+        return report
+    for folder in sorted(p for p in root.iterdir() if p.is_dir() and (p / "suggestion.json").exists()):
+        try:
+            suggestion = load_suggestion_dir(folder)
+        except Exception as exc:  # noqa: BLE001 — audit continues on corrupt folders
+            report[folder.name] = [f"load error: {exc}"]
+            continue
+        issues = education_degree_count_issues([e.degree for e in suggestion.sample.education])
+        issues += education_timeline_issues(
+            [(e.school, e.dates) for e in suggestion.sample.education],
+            [(r.start, r.end) for r in suggestion.sample.experience],
+            age=age,
+        )
+        if issues:
+            report[folder.name] = issues
+    return report
+
+
 def education_timeline_issues(
     education: list[tuple[str, str]],
     roles: list[tuple[str, str]],
+    *,
+    age: int = DEFAULT_CANDIDATE_AGE,
+    today: date | None = None,
 ) -> list[str]:
-    """Flag a degree ladder that is a tidy back-to-back school block with no work overlap.
+    """Anchor every degree to working life, and reject empty years.
 
-    `education` is (school, dates) pairs; `roles` is (start, end) pairs.
-    Passes when fewer than 2 degrees parse, when any degree overlaps a role by
-    at least 3 months, or when any two consecutive degrees are 6+ months apart.
+    `education` is (label, dates) pairs; `roles` is (start, end) pairs. Rules:
+    - nothing starts before the age-18 year for `age`;
+    - two consecutive degrees need a listed job entirely between them, or the
+      later degree must overlap a job by 3+ months (part-time study);
+    - no stretch of more than 12 months, from the first start to today, is left
+      without a listed job or a degree.
     """
-    spans: list[tuple[int, int]] = []
-    for _school, dates in education:
+    now = today or date.today()
+    now_idx = now.year * 12 + now.month - 1
+    floor = earliest_year_for_age(age, CAREER_MIN_AGE) * 12
+    degrees: list[tuple[int, int, str]] = []
+    for label, dates in education:
         start_s, end_s = _parse_education_dates(dates)
         a = _month_index(start_s, is_end=False)
         b = _month_index(end_s, is_end=True)
         if a is not None and b is not None and b >= a:
-            spans.append((a, b))
-    if len(spans) < 2:
-        return []
-    spans.sort()
+            degrees.append((a, b, label))
     role_spans: list[tuple[int, int]] = []
     for start_s, end_s in roles:
         a = _month_index(start_s, is_end=False)
         b = _month_index(end_s, is_end=True)
         if a is not None and b is not None and b >= a:
             role_spans.append((a, b))
-    for a, b in spans:
-        for ra, rb in role_spans:
-            if min(b, rb) - max(a, ra) >= _TIMELINE_MIN_OVERLAP_MONTHS:
-                return []
-    for (_a1, b1), (a2, _b2) in zip(spans, spans[1:]):
-        if a2 - b1 >= _TIMELINE_MIN_GAP_MONTHS:
-            return []
-    return [_TIMELINE_ISSUE]
+    if not degrees:
+        return []
+
+    issues: list[str] = []
+    for a, _b, label in degrees:
+        if a < floor:
+            issues.append(f"{label} starts before age {CAREER_MIN_AGE} (candidate is about {age}).")
+    if any(a < floor for a, _b in role_spans):
+        issues.append(f"A listed job starts before age {CAREER_MIN_AGE} (candidate is about {age}).")
+
+    degrees.sort()
+    for (_a1, b1, label1), (a2, b2, label2) in zip(degrees, degrees[1:]):
+        between = any(ra >= b1 and rb <= a2 for ra, rb in role_spans)
+        part_time = any(min(b2, rb) - max(a2, ra) >= _TIMELINE_MIN_OVERLAP_MONTHS for ra, rb in role_spans)
+        if not (between or part_time):
+            issues.append(
+                f"{label1} and {label2} are back to back with no listed job between them "
+                "and no part-time overlap."
+            )
+
+    covered = sorted([(a, b) for a, b, _ in degrees] + role_spans)
+    cur_end = covered[0][1]
+    for a, b in covered[1:]:
+        if a - cur_end > MAX_UNLISTED_STRETCH_MONTHS:
+            issues.append(f"An unlisted stretch of {a - cur_end} months has no job or degree.")
+        cur_end = max(cur_end, b)
+    if now_idx - cur_end > MAX_UNLISTED_STRETCH_MONTHS:
+        issues.append(f"An unlisted stretch of {now_idx - cur_end} months runs to today.")
+    return issues
 
 
 _DEGREE_COUNT_ISSUE = (
@@ -210,7 +275,10 @@ def generate_sample(key: str) -> SampleProfile:
     md = market_data()
     prompt_vars = {
         "archetype": arch, "n_jobs": md["n_jobs"], "top_keywords": md["top_keywords"],
-        "top_requirements": md["top_requirements"], "program_formats": program_formats()}
+        "top_requirements": md["top_requirements"], "program_formats": program_formats(),
+        "candidate_age": DEFAULT_CANDIDATE_AGE,
+        "earliest_year": earliest_year_for_age(DEFAULT_CANDIDATE_AGE),
+    }
     sample = ask_json("samples", SampleProfile, prompt_vars)
     sample = _apply_education_check(
         sample,
@@ -1100,7 +1168,9 @@ def suggest_sample(
         "jd": jd,
         "seed_mode": mode,
         "years_experience": years,
-        "career_start_year": date.today().year - years,
+        "career_start_year": max(date.today().year - years, earliest_year_for_age(DEFAULT_CANDIDATE_AGE)),
+        "candidate_age": DEFAULT_CANDIDATE_AGE,
+        "earliest_year": earliest_year_for_age(DEFAULT_CANDIDATE_AGE),
         "profile_seed": seed,
         "profile_seed_text": format_profile_seed_for_prompt(seed) if seed else "",
         "archetypes": archetypes(),

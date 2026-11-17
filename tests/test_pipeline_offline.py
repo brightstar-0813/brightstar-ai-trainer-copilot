@@ -644,7 +644,7 @@ def test_suggest_sample_years_experience_in_prompt(env):
     assert "12+ years" in prompt
     assert "at least 20 years" not in prompt
     assert samples.normalize_years_experience(3) == 5
-    assert samples.normalize_years_experience(99) == 40
+    assert samples.normalize_years_experience(99) == samples.MAX_YEARS_EXPERIENCE
     assert samples.normalize_years_experience("bad") == 20
 
 

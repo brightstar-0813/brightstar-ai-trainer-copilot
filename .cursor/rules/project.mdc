@@ -31,7 +31,11 @@ model for job analysis or resume writing; run the `jt` pipelines instead.
 
 ## Rules
 - Never fabricate credentials, employers, dates, metrics or tools in resumes, profiles or prompts. Missing facts
-  become questions or suggested actions. Samples are always labelled illustrative.
+ become questions or suggested actions. Samples are always labelled illustrative.
+- Invented teaching-model education follows the profession. Require a doctoral terminal credential when the
+ teaching model specifies one, but do not require a master's before it. Bachelor's → direct-entry PhD is valid
+ where that pathway is credible. Include a master's only when the profession or program needs it. Count
+ experience from employment dates, not degree enrollment.
 - When claude.ai or chatgpt.com markup changes, edit `extension/selectors.json` only; verify with
   `jt bridge test` and `pytest tests/test_content_script.py`.
 - Never collect jobs from LinkedIn. Octo may only fetch the user's own profile text for import.

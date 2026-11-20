@@ -142,15 +142,22 @@ THREE_DEGREES = [
 ]
 
 
-def test_back_to_back_degrees_with_no_job_are_flagged():
-    # Degrees after the career ends, so no part-time overlap can save them.
+def test_degree_gap_over_12_months_without_a_job_is_flagged():
     edu = [
         ("UIUC", "Aug 1999 - May 2003"),
-        ("Michigan Ross", "Aug 2003 - Apr 2004"),
-        ("Wharton", "Aug 2004 - May 2009"),
+        ("Wharton", "Sep 2005 - May 2010"),
     ]
     issues = samples.education_timeline_issues(edu, [], age=45, today=TODAY)
-    assert any("back to back" in i for i in issues)
+    assert any("longer than 12 months" in i for i in issues)
+
+
+def test_direct_entry_fall_phd_after_spring_bachelor_passes():
+    edu = [
+        ("MIT", "Aug 1999 - May 2003"),
+        ("MIT", "Sep 2003 - May 2008"),
+    ]
+    roles = [("Jun 2008", "Present")]
+    assert samples.education_timeline_issues(edu, roles, age=45, today=TODAY) == []
 
 
 def test_empty_gap_between_degrees_is_flagged():
@@ -194,11 +201,16 @@ def test_unlisted_stretch_over_12_months_is_flagged():
     assert any("unlisted" in i for i in issues)
 
 
-def test_single_or_unparseable_degree_skips_pair_rules():
+def test_single_degree_with_month_dates_skips_pair_rules():
     assert samples.education_timeline_issues(
         [("A", "Aug 1999 - May 2003")], [("Jun 2003", "Present")], age=45, today=TODAY
     ) == []
-    assert samples.education_timeline_issues([("A", ""), ("B", "")], [], age=45, today=TODAY) == []
+
+
+def test_degree_dates_must_be_month_and_year():
+    issues = samples.education_timeline_issues([("A", ""), ("B", "1999 - 2003")], [], age=45, today=TODAY)
+    mon = [i for i in issues if "Mon YYYY" in i]
+    assert len(mon) == 2
 
 
 # --- Degree count ----------------------------------------------------------
@@ -206,6 +218,18 @@ def test_single_or_unparseable_degree_skips_pair_rules():
 
 def test_three_degree_ladder_passes_count_check():
     assert samples.education_degree_count_issues(THREE_DEGREES) == []
+
+
+def test_bachelors_to_doctorate_passes_without_a_masters():
+    assert samples.education_degree_count_issues(["Bachelor of Science", "PhD"]) == []
+    assert samples.education_degree_count_issues(["BA", "JD"]) == []
+    assert samples.education_degree_count_issues(["BS", "MD"]) == []
+    assert samples.education_degree_count_issues(["BS", "PharmD"]) == []
+
+
+def test_doctorate_without_a_first_degree_fails_count_check():
+    assert samples.education_degree_count_issues(["PhD"]) != []
+    assert "direct-entry" in samples.education_degree_count_issues(["PhD"])[0]
 
 
 def test_two_degrees_fail_count_check():
@@ -275,10 +299,10 @@ def test_retry_that_still_fails_is_noted_for_coach():
     )
     out = samples._apply_education_check(flat, lambda fix: flat)
     assert "education_check" in out.benchmarks
-    assert "back to back" in out.benchmarks["education_check"]
+    assert "unlisted" in out.benchmarks["education_check"]
 
 
-def test_missing_degree_is_noted_even_when_timeline_passes():
+def test_direct_entry_doctorate_passes_when_timeline_is_sound():
     two = _sample(
         [
             ("UIUC", "Bachelor of Science (BS)", "Aug 1999 - May 2003"),
@@ -293,8 +317,20 @@ def test_missing_degree_is_noted_even_when_timeline_passes():
         today=TODAY,
     ) == []
     out = samples._apply_education_check(two, lambda fix: two)
-    assert "at least three degrees" in out.benchmarks["education_check"]
-    assert "back to back" not in out.benchmarks["education_check"]
+    assert "education_check" not in out.benchmarks
+
+
+def test_missing_doctorate_is_noted_when_timeline_passes():
+    bs_ms = _sample(
+        [
+            ("UIUC", "Bachelor of Science (BS)", "Aug 1999 - May 2003"),
+            ("Ross", "Master of Accounting (MAcc)", "Sep 2005 - Apr 2006"),
+        ],
+        roles=[("Jun 2006", "Present"), ("Jun 2003", "Aug 2005")],
+    )
+    out = samples._apply_education_check(bs_ms, lambda fix: bs_ms)
+    assert "doctoral terminal credential" in out.benchmarks["education_check"]
+    assert "unlisted" not in out.benchmarks["education_check"]
 
 
 def test_timeline_fix_block_renders_into_samples_prompt():
@@ -310,6 +346,8 @@ def test_timeline_fix_block_renders_into_samples_prompt():
     )
     assert "Retry fix" in prompt and "FIX THE DATES" in prompt
     assert "about 45 years old" in prompt or "45" in prompt
+    assert "direct-entry" in prompt
+    assert "at least three degree" not in prompt
     plain = render_prompt(
         "samples",
         archetype={"name": "Finance SME", "description": "d", "roles": []},
@@ -441,6 +479,84 @@ def test_pasted_career_history_flags_order_and_anachronisms():
     assert "ASC 606" in text_out and "ASC 842" in text_out
     assert "Booth" not in text_out
     assert "Wharton" not in text_out
+
+
+def test_year_only_employment_dates_are_flagged():
+    roles = [("Analyst at Acme", "2012", "2016", [])]
+    issues = samples.career_timeline_issues(roles, [], today=TODAY)
+    assert any("Mon YYYY" in i for i in issues)
+
+
+def test_experience_benchmark_does_not_count_degree_years():
+    roles = [("Jun 2010", "Jun 2024"), ("Jun 2003", "Aug 2005")]
+    # 14 years + 26 months ≈ 16.2 years of employment.
+    assert samples.relevant_experience_issues("16 years", roles) == []
+    assert samples.relevant_experience_issues("15+ years", roles) == []
+    inflated = samples.relevant_experience_issues("24 years", roles)
+    assert inflated
+    assert "degree enrollment" in inflated[0]
+    short = samples.relevant_experience_issues("20+ years", roles)
+    assert short and "20+" in short[0]
+
+
+def test_timeline_years_label_ignores_education():
+    label = samples._timeline_years_label({
+        "experience": [
+            {"start": "2014", "end": "2019"},
+            {"start": "2019", "end": "2024"},
+        ],
+        "education": [{"start": "2004", "end": "2014"}],
+    })
+    assert label == "10 years"
+
+
+def test_education_teaching_note_explains_the_pathway():
+    thin = SimpleNamespace(
+        section="education",
+        necessary_information="List the school and degree.",
+        best_option="A strong school.",
+        how_to_teach="Walk through the entry.",
+    )
+    assert samples.education_teaching_note_issues([thin])
+    full = SimpleNamespace(
+        section="education",
+        necessary_information="School, degree, field, and Mon YYYY dates for this profession.",
+        best_option=(
+            "A bachelor's in computer science then a direct-entry PhD is the credible US pathway, "
+            "so the master's was omitted. The PhD was full-time and residential at a research university. "
+            "It sits between employment periods, and the program is a credible choice."
+        ),
+        how_to_teach="Explain why this progression fits the profession and the employment timeline.",
+    )
+    assert samples.education_teaching_note_issues([full]) == []
+    assert samples.education_teaching_note_issues([])
+
+
+def test_suggest_prompt_allows_direct_entry_doctorate():
+    prompt = render_prompt(
+        "sample_suggest",
+        name="Ada Example",
+        company="Cisco",
+        title="Research Scientist",
+        notes="",
+        jd="",
+        seed_mode="last_company",
+        years_experience=20,
+        career_start_year=2006,
+        candidate_age=45,
+        earliest_year=1999,
+        profile_seed_text="",
+        archetypes={},
+        n_jobs=0,
+        top_keywords=[],
+        program_formats=[],
+        tool_launch_years=[],
+    )
+    assert "direct-entry" in prompt
+    assert "A master's is not" in prompt
+    assert "Required ladder" not in prompt
+    assert "why a master's was included or omitted" in prompt
+    assert "employment dates only" in prompt
 
 
 def test_chronology_rule_and_tool_years_render_into_samples_prompt():

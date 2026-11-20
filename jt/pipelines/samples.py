@@ -111,6 +111,19 @@ _TIMELINE_MIN_OVERLAP_MONTHS = 3
 MAX_UNLISTED_STRETCH_MONTHS = 12
 
 
+_MON_YYYY = re.compile(
+    r"(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec) (?:19|20)\d{2}"
+)
+
+
+def _is_mon_yyyy(value: object, *, allow_present: bool = False) -> bool:
+    """True when a date is month + year, or Present when that is allowed."""
+    normalized = format_month_year(str(value or "").strip())
+    if allow_present and normalized.casefold() == "present":
+        return True
+    return bool(_MON_YYYY.fullmatch(normalized))
+
+
 def _month_index(text: object, *, is_end: bool) -> int | None:
     """Map `Mon YYYY`, `YYYY`, or `Present` to a month index (year * 12 + month - 1)."""
     raw = format_month_year(str(text or "").strip())
@@ -165,6 +178,11 @@ def audit_teaching_model_education(
             age=age,
         )
         issues += _sample_career_issues(suggestion.sample)
+        issues += relevant_experience_issues(
+            str((suggestion.sample.benchmarks or {}).get("total_relevant_experience") or ""),
+            [(r.start, r.end) for r in suggestion.sample.experience],
+        )
+        issues += education_teaching_note_issues(suggestion.teaching_notes)
         if issues:
             report[folder.name] = issues
     return report
@@ -180,9 +198,14 @@ def education_timeline_issues(
     """Anchor every degree to working life, and reject empty years.
 
     `education` is (label, dates) pairs; `roles` is (start, end) pairs. Rules:
+    - degree and job dates use Mon YYYY;
     - nothing starts before the age-18 year for `age`;
-    - two consecutive degrees need a listed job entirely between them, or the
-      later degree must overlap a job by 3+ months (part-time study);
+    - two consecutive degrees are valid when a listed job sits entirely between
+      them, the later degree overlaps a job by 3+ months (part-time study), or
+      the later degree starts within 12 months of the earlier one ending
+      (a normal academic transition, including spring bachelor's into a fall
+      direct-entry doctorate, or an embedded master's inside the doctorate);
+    - a gap longer than 12 months needs a job between the degrees or part-time study;
     - no stretch of more than 12 months, from the first start to today, is left
       without a listed job or a degree.
     """
@@ -202,10 +225,14 @@ def education_timeline_issues(
         b = _month_index(end_s, is_end=True)
         if a is not None and b is not None and b >= a:
             role_spans.append((a, b))
-    if not degrees:
-        return []
-
     issues: list[str] = []
+    for label, dates in education:
+        start_s, end_s = _parse_education_dates(dates)
+        if not _is_mon_yyyy(start_s) or not _is_mon_yyyy(end_s):
+            issues.append(f"{label}: degree dates must read Mon YYYY to Mon YYYY.")
+    if not degrees:
+        return issues
+
     for a, _b, label in degrees:
         if a < floor:
             issues.append(f"{label} starts before age {CAREER_MIN_AGE} (candidate is about {age}).")
@@ -216,10 +243,12 @@ def education_timeline_issues(
     for (_a1, b1, label1), (a2, b2, label2) in zip(degrees, degrees[1:]):
         between = any(ra >= b1 and rb <= a2 for ra, rb in role_spans)
         part_time = any(min(b2, rb) - max(a2, ra) >= _TIMELINE_MIN_OVERLAP_MONTHS for ra, rb in role_spans)
-        if not (between or part_time):
+        # gap <= 0 covers an embedded master's whose dates sit inside the doctorate.
+        academic_transition = (a2 - b1) <= MAX_UNLISTED_STRETCH_MONTHS
+        if not (between or part_time or academic_transition):
             issues.append(
-                f"{label1} and {label2} are back to back with no listed job between them "
-                "and no part-time overlap."
+                f"{label1} and {label2} leave a gap longer than {MAX_UNLISTED_STRETCH_MONTHS} months "
+                "with no listed job between them and no part-time study."
             )
 
     covered = sorted([(a, b) for a, b, _ in degrees] + role_spans)
@@ -233,18 +262,25 @@ def education_timeline_issues(
     return issues
 
 
-_DEGREE_COUNT_ISSUE = (
-    "Education must list at least three degrees as separate entries: a bachelor's, a master's, "
-    "and a doctorate (PhD or professional doctorate)."
+_DEGREE_PATH_ISSUE = (
+    "Education must include a first degree (bachelor's or the profession's undergraduate degree) "
+    "and a doctoral terminal credential (research PhD or the profession's professional doctorate). "
+    "A master's is not required: bachelor's followed by a direct-entry doctorate is valid. "
+    "Do not add a master's only to increase the number of degrees."
 )
 
 
 def education_degree_count_issues(degrees: list[str]) -> list[str]:
-    """Require a bachelor's, a master's, and a doctorate, with at least 3 degree entries."""
+    """Require a first degree and a doctorate. A master's is optional.
+
+    Direct-entry bachelor's → PhD, and undergraduate → MD/JD/PharmD, both pass.
+    Bachelor's + master's with no doctorate does not. A doctorate with no first degree does not.
+    """
     entries = [d for d in degrees if (d or "").strip()]
     ranks = {degree_rank(d) for d in entries}
-    ok = len(entries) >= 3 and 2 in ranks and 3 in ranks and 5 in ranks
-    return [] if ok else [_DEGREE_COUNT_ISSUE]
+    has_first_degree = 2 in ranks
+    has_doctorate = 5 in ranks
+    return [] if has_first_degree and has_doctorate else [_DEGREE_PATH_ISSUE]
 
 
 # Verified availability: a role that starts before the year cannot cite the tool, product, or standard.
@@ -315,9 +351,11 @@ def career_timeline_issues(
     for label, start_s, end_s, bullets in roles:
         a = _month_index(start_s, is_end=False)
         b = _month_index(end_s, is_end=True)
-        if a is None or b is None or b < a:
+        format_ok = _is_mon_yyyy(start_s) and _is_mon_yyyy(end_s, allow_present=True)
+        if not format_ok or a is None or b is None or b < a:
             issues.append(f"{label}: dates must read Mon YYYY to Mon YYYY (or Present), ending after they start.")
-            continue
+            if a is None or b is None or b < a:
+                continue
         spans.append((a, b, label))
         issues.extend(_tool_date_issues(label, a // 12, bullets))
 
@@ -354,8 +392,118 @@ def program_formats() -> list[dict[str, str]]:
     return list(config.load_yaml("program_formats.yaml").get("programs") or [])
 
 
+_EXPERIENCE_CLAIM = re.compile(r"(\d+(?:\.\d+)?)\s*(\+)?\s*years?", re.IGNORECASE)
+_NOTE_PROFESSION = re.compile(r"pathway|profession|progression|direct[- ]entry|route", re.IGNORECASE)
+_NOTE_MASTERS = re.compile(r"master|direct[- ]entry|omit", re.IGNORECASE)
+_NOTE_FORMAT = re.compile(
+    r"full[- ]time|part[- ]time|residential|evening|online|executive",
+    re.IGNORECASE,
+)
+_NOTE_TIMELINE = re.compile(r"employ|timeline|career|job|\bwork", re.IGNORECASE)
+_NOTE_SCHOOL = re.compile(r"universit|program|school|credible|ranking|research", re.IGNORECASE)
+
+
+def employment_months(roles: list[tuple[str, str]]) -> int | None:
+    """Union of employment spans in months. Degree dates are not included."""
+    spans: list[tuple[int, int]] = []
+    for start_s, end_s in roles:
+        a = _month_index(start_s, is_end=False)
+        b = _month_index(end_s, is_end=True)
+        if a is None or b is None or b < a:
+            continue
+        spans.append((a, b))
+    if not spans:
+        return None
+    spans.sort()
+    total = 0
+    cur_a, cur_b = spans[0]
+    for a, b in spans[1:]:
+        if a <= cur_b:
+            cur_b = max(cur_b, b)
+        else:
+            total += cur_b - cur_a
+            cur_a, cur_b = a, b
+    total += cur_b - cur_a
+    return total
+
+
+def relevant_experience_issues(claimed: str, roles: list[tuple[str, str]]) -> list[str]:
+    """Flag a benchmark that does not match years counted from jobs alone."""
+    text = (claimed or "").strip()
+    if not text:
+        return []
+    match = _EXPERIENCE_CLAIM.search(text)
+    if not match:
+        return [
+            "benchmarks.total_relevant_experience must state the years calculated from employment dates."
+        ]
+    claimed_years = float(match.group(1))
+    open_ended = bool(match.group(2))
+    months = employment_months(roles)
+    if months is None:
+        return []
+    actual = months / 12
+    if open_ended:
+        if actual + 1 < claimed_years:
+            return [_experience_mismatch(claimed_years, actual, open_ended=True)]
+        return []
+    if abs(actual - claimed_years) > 1:
+        return [_experience_mismatch(claimed_years, actual, open_ended=False)]
+    return []
+
+
+def _experience_mismatch(claimed: float, actual: float, *, open_ended: bool) -> str:
+    label = f"{claimed:g}+" if open_ended else f"{claimed:g}"
+    return (
+        f"total_relevant_experience claims {label} years but employment dates cover about "
+        f"{actual:.1f} years. Count jobs only; do not count degree enrollment as experience."
+    )
+
+
+def education_teaching_note_issues(notes: list) -> list[str]:
+    """The education teaching note has to explain the pathway that was chosen."""
+    edu_notes = [
+        n for n in notes or []
+        if str(getattr(n, "section", "") or "").strip().casefold() == "education"
+    ]
+    if not edu_notes:
+        return [
+            "Add an education teaching note that explains the degree pathway, "
+            "why a master's was included or omitted, study format, how the dates fit employment, "
+            "and why the university is credible."
+        ]
+    text = " ".join(
+        " ".join(
+            str(getattr(n, field, "") or "")
+            for field in ("necessary_information", "best_option", "how_to_teach")
+        )
+        for n in edu_notes
+    )
+    missing: list[str] = []
+    if not _NOTE_PROFESSION.search(text):
+        missing.append("why this degree progression fits the target profession")
+    if not _NOTE_MASTERS.search(text):
+        missing.append("whether admission is direct-entry and why a master's was included or omitted")
+    if not _NOTE_FORMAT.search(text):
+        missing.append("whether each degree was full-time, part-time, or residential")
+    if not _NOTE_TIMELINE.search(text):
+        missing.append("how the education timeline fits the employment history")
+    if not _NOTE_SCHOOL.search(text):
+        missing.append("why the university and program are credible")
+    if not missing:
+        return []
+    return ["Education teaching note must explain: " + "; ".join(missing) + "."]
+
+
+def _claimed_experience(sample: Any) -> str:
+    benches = getattr(sample, "benchmarks", None) or {}
+    if not isinstance(benches, dict):
+        return ""
+    return str(benches.get("total_relevant_experience") or "")
+
+
 def _sample_education_issues(sample: Any) -> list[str]:
-    """Degree count, anchored timeline, and career facts (order, overlaps, tool dates)."""
+    """Degree pathway, anchored timeline, career facts, and the experience benchmark."""
     return (
         education_degree_count_issues([e.degree for e in sample.education])
         + education_timeline_issues(
@@ -363,11 +511,15 @@ def _sample_education_issues(sample: Any) -> list[str]:
             [(r.start, r.end) for r in sample.experience],
         )
         + _sample_career_issues(sample)
+        + relevant_experience_issues(
+            _claimed_experience(sample),
+            [(r.start, r.end) for r in sample.experience],
+        )
     )
 
 
 def _apply_education_check(sample: Any, retry: Callable[[str], Any]) -> Any:
-    """Post-check degree count, timeline, and career facts; retry once with the issues, then note them for the coach."""
+    """Post-check degree pathway, timeline, and career facts; retry once, then note any issues for the coach."""
     issues = _sample_education_issues(sample)
     if not issues:
         return sample
@@ -375,6 +527,22 @@ def _apply_education_check(sample: Any, retry: Callable[[str], Any]) -> Any:
     remaining = _sample_education_issues(fixed)
     if remaining:
         fixed.benchmarks["education_check"] = " ".join(remaining)
+    return fixed
+
+
+def _apply_suggestion_education_check(suggestion: Any, retry: Callable[[str], Any]) -> Any:
+    """Same career check as a sample, plus the education teaching note. Retry replaces the whole suggestion."""
+
+    def issues(item: Any) -> list[str]:
+        return _sample_education_issues(item.sample) + education_teaching_note_issues(item.teaching_notes)
+
+    found = issues(suggestion)
+    if not found:
+        return suggestion
+    fixed = retry(" ".join(found))
+    remaining = issues(fixed)
+    if remaining:
+        fixed.sample.benchmarks["education_check"] = " ".join(remaining)
     return fixed
 
 
@@ -642,12 +810,13 @@ def _year_tokens(*values: object) -> list[int]:
 
 
 def _timeline_years_label(seed: dict) -> str:
-    """Honest coach marker from provided role dates (not a padded 20+ invent)."""
+    """Honest coach marker from employment dates only.
+
+    Degree enrollment is not professional experience and does not extend the span.
+    """
     years: list[int] = []
     for role in seed.get("experience") or []:
         years.extend(_year_tokens(role.get("start"), role.get("end")))
-    for edu in seed.get("education") or []:
-        years.extend(_year_tokens(edu.get("start"), edu.get("end")))
     if not years:
         return "provided timeline"
     span = max(years) - min(years)
@@ -1291,11 +1460,11 @@ def suggest_sample(
     suggestion = ask_json("sample_suggest", SuggestedBenchmark, prompt_vars)
     if mode != "provided":
         # Provided-seed education comes from the user's seed, so only invent mode is checked.
-        suggestion.sample = _apply_education_check(
-            suggestion.sample,
+        suggestion = _apply_suggestion_education_check(
+            suggestion,
             lambda fix: ask_json(
                 "sample_suggest", SuggestedBenchmark, {**prompt_vars, "timeline_fix": fix}
-            ).sample,
+            ),
         )
     if jd:
         suggestion.target_kind = "job_description"

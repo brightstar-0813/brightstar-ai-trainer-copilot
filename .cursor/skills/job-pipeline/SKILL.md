@@ -40,10 +40,14 @@ Project root: `D:\Work\JobHunting\00_AI Trainer\AI Trainer Copiot`. Use `.\.venv
   After a JD suggest, the pipeline auto-screens the teaching resume (fit + local ATS keyword coverage +
   top-0.1% verdict), may run one keyword-weave pass, and writes `alignment.json` / `alignment_report.md`
   (+ `jd.txt`) beside the resume. Re-score with `jt samples align --dir <folder> [--jd-file …] [--weave]`.
-  Invented teaching models always use a doctoral education ladder (bachelor's + master's + PhD, or
-  the domain's professional doctorate) from real high-ranking universities as separate degree
-  entries — not BS/MS alone (add a second field degree when dual expertise is needed). Provided-seed
-  mode still keeps only the seeded schools. Licenses and certifications should be dense when real
+  Invented teaching models always include a doctoral terminal credential from a real high-ranking
+  university (research PhD, or the profession's doctorate such as MD, JD, EdD, or PharmD). A master's
+  is included only when that profession or program makes it the credible choice. Bachelor's →
+  direct-entry PhD is valid for many US research fields. Do not add a master's only to fill a
+  three-degree ladder. Count `total_relevant_experience` from employment dates, not degree enrollment.
+  The education teaching note must explain the pathway, the master's decision, study format, how the
+  dates fit employment, and why the university is credible. Provided-seed mode still keeps only the
+  seeded schools. Licenses and certifications should be dense when real
   credentials exist for the domain (typically 1–3 licenses plus 2–4 specialty certs, or 3–6
   vendor/professional certs) — not a single token credential.
   Resume tailor keeps every real degree in the master profile but surfaces only job-relevant ones.

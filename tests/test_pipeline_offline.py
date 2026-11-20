@@ -681,7 +681,7 @@ def test_apply_provided_orgs_strips_invented_peers(env):
     assert fixed.sample.licenses == ["PE, NCEES"]
     assert fixed.sample.certifications == []
     assert "Invented peer role" not in " ".join(b for r in fixed.sample.experience for b in r.bullets)
-    assert fixed.sample.benchmarks["total_relevant_experience"] == "14 years"
+    assert fixed.sample.benchmarks["total_relevant_experience"] == "10 years"
     assert fixed.sample.projects  # kept from model
 
 

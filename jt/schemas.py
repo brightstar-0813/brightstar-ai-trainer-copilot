@@ -437,7 +437,10 @@ class SuggestedBenchmark(BaseModel):
     )
     teaching_notes: list[TeachingNote] = Field(
         min_length=6,
-        description="At least one note each for headline, experience, education, licenses, certifications, and projects.",
+        description="At least one note each for headline, experience, education, licenses, certifications, and projects. "
+        "The education note must explain why the degree pathway fits the profession, whether direct-entry "
+        "doctoral admission applies, why a master's was included or omitted, full-time versus part-time study, "
+        "how the dates fit employment, and why the university is credible.",
     )
     sample: TargetedSample
 
